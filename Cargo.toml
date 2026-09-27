@@ -249,6 +249,15 @@ winresource = "0.1"
 [package.metadata.docs.rs]
 all-features = true
 
+## Keep dev builds small: line tables are enough for backtraces, dependencies
+## get no debug info, and incremental caches are disabled (they grow unbounded).
+[profile.dev]
+debug = "line-tables-only"
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
+
 [profile.release]
 debug = false
 strip = "symbols"
