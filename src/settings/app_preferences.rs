@@ -208,7 +208,7 @@ impl AppPreferences {
 /// Forces the main `HomeScreen` layout into a specific variant.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewModeOverride {
-    /// Select desktop/mobile based on window width.
+    /// Select desktop/mobile based on the width available to Rinx.
     #[default]
     Automatic,
     /// Always use the wide "desktop" layout.
@@ -238,11 +238,13 @@ impl ViewModeOverride {
     pub fn variant_selector(self) -> impl FnMut(&mut Cx, &Vec2d) -> LiveId + 'static {
         move |cx: &mut Cx, parent_size: &Vec2d| match self {
             Self::Automatic => {
-                let is_desktop = if cx.display_context.is_screen_size_known() {
-                    cx.display_context.is_desktop()
-                } else {
-                    // Fall back to the parent's layout size when the screen size isn't known yet.
+                // A hosted Rinx pane can be narrow inside a wide OctoSense
+                // window. Prefer its allocated width over the outer window's.
+                let is_desktop = if parent_size.x.is_finite() && parent_size.x > 0.0 {
                     cx.display_context.is_desktop_width(parent_size.x)
+                } else {
+                    // Before the first layout, no pane size is available yet.
+                    cx.display_context.is_desktop()
                 };
                 if is_desktop {
                     live_id!(Desktop)

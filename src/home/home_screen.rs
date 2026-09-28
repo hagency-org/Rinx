@@ -620,11 +620,12 @@ impl Widget for HomeScreen {
                         self.apply_view_mode(cx, *new_mode);
                         // Set & broadcast the new variant now so that the mobile cleanup in
                         // `sync_effective_view_mode()` can run before the dock reloads.
-                        if !matches!(new_mode, ViewModeOverride::Automatic)
+                        let parent_size = self.view.area().rect(cx).size;
+                        if parent_size.x > 0.0
+                            || !matches!(new_mode, ViewModeOverride::Automatic)
                             || cx.display_context.is_screen_size_known()
                         {
-                            // this dummy parent size is only read when the screen size is unknown
-                            let variant = (new_mode.variant_selector())(cx, &Vec2d::default());
+                            let variant = (new_mode.variant_selector())(cx, &parent_size);
                             cx.global::<MainViewIsDesktop>().0 = Some(variant == live_id!(Desktop));
                         }
                         self.view.redraw(cx);
@@ -1079,5 +1080,86 @@ impl HomeScreen {
             }
         }
         self.view.redraw(cx);
+    }
+}
+
+#[cfg(test)]
+mod responsive_layout_tests {
+    use super::*;
+    use makepad_widgets::makepad_draw::cx_draw::CxDraw;
+
+    fn home() -> (Cx, HomeScreen, AppState) {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        // OctoSense's outer window stays wide while only the Rinx tile resizes.
+        cx.display_context.screen_size = dvec2(1440.0, 900.0);
+        let home = cx.with_vm(|vm| {
+            makepad_widgets::script_mod(vm);
+            crate::app::register_widgets(vm);
+            vm.bx.captured_errors = Some(Vec::new());
+            let value = script_eval!(vm, { mod.widgets.HomeScreen {} });
+            let home = HomeScreen::script_from_value(vm, value);
+            assert!(vm.take_errors().is_empty());
+            home
+        });
+        (cx, home, AppState::default())
+    }
+
+    fn draw_pane(cx: &mut Cx, home: &mut HomeScreen, state: &mut AppState, width: f64) {
+        cx.redraw_all();
+        let pass = DrawPass::new(cx);
+        pass.set_size(cx, dvec2(1440.0, 900.0));
+        let mut list = DrawList2d::new(cx);
+        let event = DrawEvent::default();
+        let mut draw = CxDraw::new(cx, &event);
+        let mut cx2d = Cx2d::new(&mut draw);
+        cx2d.begin_pass(&pass, None);
+        list.begin_always(&mut cx2d);
+        cx2d.begin_root_turtle(dvec2(1440.0, 900.0), Layout::flow_overlay());
+        home.draw_walk_all(&mut cx2d, &mut Scope::with_data(state), Walk {
+            width: Size::Fixed(width),
+            height: Size::Fixed(760.0),
+            ..Walk::default()
+        });
+        cx2d.end_pass_sized_turtle();
+        list.end(&mut cx2d);
+        cx2d.end_pass(&pass);
+    }
+
+    fn assert_layout(cx: &mut Cx, home: &HomeScreen, desktop: bool) {
+        let adaptive = home.view.adaptive_view(cx, ids!(main_adaptive_view));
+        assert_eq!(adaptive.borrow().unwrap().active_variant(),
+            Some(if desktop { id!(Desktop) } else { id!(Mobile) }));
+        assert_eq!(effective_is_desktop(cx), desktop);
+        assert_eq!(crate::home::account_menu::is_desktop_layout(cx), desktop);
+    }
+
+    #[test]
+    fn embedded_home_follows_pane_resizes_inside_a_wide_host() {
+        let (mut cx, mut home, mut state) = home();
+        for (width, desktop) in [(1024.0, true), (375.0, false), (860.0, true), (859.0, false)] {
+            draw_pane(&mut cx, &mut home, &mut state, width);
+            assert_layout(&mut cx, &home, desktop);
+            assert_eq!(cx.display_context.screen_size, dvec2(1440.0, 900.0));
+            if !desktop {
+                let nav = home.view.view(&mut cx, ids!(mobile_navigation)).area().rect(&cx);
+                assert!(nav.size.x > 0.0 && nav.pos.x + nav.size.x <= width + 0.5,
+                    "Mobile navigation must fit the Rinx pane: {nav:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn returning_to_automatic_uses_the_current_pane() {
+        let (mut cx, mut home, mut state) = home();
+        draw_pane(&mut cx, &mut home, &mut state, 375.0);
+        for (mode, desktop) in [(ViewModeOverride::ForceWide, true), (ViewModeOverride::Automatic, false)] {
+            state.app_prefs.view_mode = mode;
+            let actions = cx.capture_actions(|cx| state.app_prefs.on_view_mode_changed(cx));
+            home.handle_event(&mut cx, &Event::Actions(actions), &mut Scope::with_data(&mut state));
+            assert_eq!(effective_is_desktop(&mut cx), desktop,
+                "Preference changes must prepare navigation for the pane's next layout");
+            draw_pane(&mut cx, &mut home, &mut state, 375.0);
+            assert_layout(&mut cx, &home, desktop);
+        }
     }
 }

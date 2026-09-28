@@ -221,7 +221,7 @@ pub fn is_desktop_layout(cx: &mut Cx) -> bool {
     match cx.global::<AppPreferencesGlobal>().0.view_mode {
         ViewModeOverride::ForceWide => true,
         ViewModeOverride::ForceNarrow => false,
-        ViewModeOverride::Automatic => cx.display_context.is_desktop(),
+        ViewModeOverride::Automatic => super::home_screen::effective_is_desktop(cx),
     }
 }
 
