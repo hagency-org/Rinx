@@ -10,7 +10,7 @@ license = "Apache-2.0"
 readme = "README.md"
 categories = ["gui"]
 repository = "https://github.com/upstreamlabs/Rinx"
-version = "1.0.0-beta.1"
+version = "1.0.0"
 metadata.makepad-auto-version = "zqpv-Yj-K7WNVK2I8h5Okhho46Q="
 
 [dependencies]
