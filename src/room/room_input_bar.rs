@@ -895,6 +895,7 @@ impl RoomInputBar {
                     )
                 );
                 submit_async_request(MatrixRequest::SendMessage {
+                    routing: None,
                     timeline_kind: timeline_kind.clone(),
                     message,
                     replied_to,
@@ -923,6 +924,11 @@ impl RoomInputBar {
             if !entered_text.is_empty() {
                 match mentionable_text_input.parse_input(&entered_text) {
                     SlashCommandOutcome::Message(message) => {
+                        let settings = crate::agent_access::current();
+                        let routing = match crate::agent_access::routing::directives(&settings, crate::sliding_sync::current_user_id().as_deref(), timeline_kind.room_id(), cx.get_global::<RoomsListRef>().is_direct_room(timeline_kind.room_id()).unwrap_or(false), &message, self.replying_to.as_ref().map(|(event, _)|event.sender())) {
+                            Ok(routing) => routing,
+                            Err(error) => {enqueue_popup_notification(error, PopupKind::Error, Some(5.0)); return;}
+                        };
                         let replied_to = self.replying_to.take().and_then(|(event_tl_item, _emb)|
                             event_tl_item.event_id().map(|event_id| {
                                 let enforce_thread = if timeline_kind.thread_root_event_id().is_some() {
@@ -946,6 +952,7 @@ impl RoomInputBar {
                             )
                         );
                         submit_async_request(MatrixRequest::SendMessage {
+                            routing,
                             timeline_kind: timeline_kind.clone(),
                             message,
                             replied_to,
@@ -1026,6 +1033,9 @@ impl RoomInputBar {
             avatar_state: AvatarState::Unknown,
         };
         match action {
+            SlashCommandAction::InviteAgent => {
+                cx.action(crate::home::invite_modal::InviteModalAction::Open(utils::RoomNameId::empty(room_id.clone())));
+            }
             SlashCommandAction::LeaveRoom => {
                 let room_details = match cx.get_global::<RoomsListRef>().get_room_name(room_id) {
                     Some(room_name_id) => BasicRoomDetails::Name(room_name_id),

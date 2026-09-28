@@ -583,6 +583,11 @@ script_mod! {
                     text: ""
                 }
 
+                manage_button := RobrixNeutralIconButton {
+                    width: Fit height: 40
+                    text: #(crate::i18n::tr("Manage")) i18n_text: "Manage"
+                    icon_walk: Walk{width: 0 height: 0}
+                }
                 invite_button := RobrixPositiveIconButton {
                     width: Fit
                     align: Align{x: 0.5, y: 0.5}
@@ -1105,6 +1110,12 @@ impl Widget for SpaceLobbyScreen {
 
         if let Event::Actions(actions) = event {
             for action in actions {
+                if let Some(changed) = action.downcast_ref::<super::space_management::SpaceManagementChanged>()
+                    && crate::sliding_sync::current_user_id().as_ref() == Some(&changed.owner)
+                    && let Some(space) = self.space_name_id.clone()
+                {
+                    self.send_initial_space_requests(cx, &space);
+                }
                 // Just like the rooms list header, handle updates to a space's name.
                 if let Some(AppStateAction::RoomNameUpdated(new_room_name)) = action.downcast_ref()
                     && self.space_name_id.as_ref().is_some_and(|sni| sni.room_id() == new_room_name.room_id())
@@ -1204,6 +1215,11 @@ impl Widget for SpaceLobbyScreen {
             }
 
             // Handle the invite button being clicked in the header.
+            if self.view.button(cx, ids!(header.parent_space_row.manage_button)).clicked(actions)
+                && let Some(space) = &self.space_name_id
+            {
+                cx.action(super::space_management::SpaceManagementAction::Open {parent: Some(space.clone())});
+            }
             if self.view.button(cx, ids!(header.parent_space_row.invite_button)).clicked(actions) {
                 if let Some(space_name_id) = self.space_name_id.as_ref() {
                     cx.action(InviteModalAction::Open(space_name_id.clone()));

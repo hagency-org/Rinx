@@ -31,7 +31,13 @@ use matrix_sdk::ruma::events::{AnyMessageLikeEventContent, AnySyncTimelineEvent}
 
 pub mod agents;
 pub mod approval;
+pub(crate) mod approval_state;
+pub mod approval_runtime;
+mod marker_selection;
+pub mod approval_inbox;
 pub mod approval_card;
+pub mod octos;
+pub mod octos_card;
 pub mod preferences;
 pub mod ops;
 pub mod reply;
@@ -74,13 +80,15 @@ pub fn approval_message_of(event_tl_item: &EventTimelineItem) -> Option<approval
 pub enum ApprovalVerdictResult {
     /// The verdict was accepted by the homeserver.
     Sent { room_id: OwnedRoomId, source_event_id: OwnedEventId },
-    /// The verdict could not be sent; the card's buttons are re-enabled.
+    /// A send failed. Shared claim state decides whether retry is safe.
     Failed { room_id: OwnedRoomId, source_event_id: OwnedEventId, error: String },
 }
 
 /// Registers the agent-chat widgets with the script VM.
 pub fn script_mod(vm: &mut ScriptVm) {
     approval_card::script_mod(vm);
+    octos_card::script_mod(vm);
+    approval_inbox::script_mod(vm);
     preferences::script_mod(vm);
     reply::script_mod(vm);
     ops::ui::script_mod(vm);

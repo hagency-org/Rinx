@@ -231,6 +231,9 @@ impl Widget for MobileChatInfo {
                     match index {
                         0 => self.choosing_notifications = true,
                         1 => cx.action(InviteModalAction::Open(data.room.clone())),
+                        2 => cx.action(crate::agent_access::AgentAccessAction::Open),
+                        #[cfg(feature = "agent_chat")]
+                        3 => cx.action(crate::agent_chat::approval_inbox::ApprovalInboxAction::Open {project: Some(data.room.room_id().clone())}),
                         _ => (),
                     }
                 }
@@ -250,7 +253,7 @@ impl Widget for MobileChatInfo {
         self.view.button(cx, ids!(retry)).set_visible(cx, self.failed);
         while let Some(item) = self.view.draw_walk(cx, scope, walk).step() {
             if let Some(mut list) = item.borrow_mut::<PortalList>() {
-                let count = self.data.as_ref().map_or(0, |d| d.members.len() + 3 + if self.choosing_notifications {5} else {2});
+                let count = self.data.as_ref().map_or(0, |d| d.members.len() + 3 + if self.choosing_notifications {5} else {3 + usize::from(cfg!(feature = "agent_chat"))});
                 list.set_item_range(cx, 0, count);
                 while let Some(index) = list.next_visible_item(cx) {
                     let Some(data) = self.data.as_mut().filter(|_| index < count) else {
@@ -272,7 +275,8 @@ impl Widget for MobileChatInfo {
                     } else if let Some(profile) = data.members.get_mut(index - 3) {
                         let widget = list.item(cx, index, id!(Member));
                         widget.label(cx, ids!(name)).set_text(cx, profile.displayable_name());
-                        widget.label(cx, ids!(user_id)).set_text(cx, profile.user_id.as_str());
+                        let detail = crate::agent_access::framework_label(&profile.user_id).map_or_else(||profile.user_id.to_string(), |framework|format!("{framework} · {}", profile.user_id));
+                        widget.label(cx, ids!(user_id)).set_text(cx, &detail);
                         let avatar = widget.avatar(cx, ids!(avatar));
                         let loaded = profile.avatar_state.update_from_cache(cx).is_some_and(|image| {
                             avatar.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).is_ok()
@@ -294,7 +298,11 @@ impl Widget for MobileChatInfo {
                                 Some(RoomNotificationMode::MentionsAndKeywordsOnly) => crate::i18n::tr("Mentions"),
                                 None => crate::i18n::tr("Default"),
                             })
-                        } else {(crate::i18n::tr("Invite to Chat"), "")};
+                        } else {match index_in_actions {
+                            1 => (crate::i18n::tr("Invite to Chat"), ""),
+                            2 => (crate::i18n::tr("Agent Access"), ""),
+                            _ => (crate::i18n::tr("Approval rooms"), ""),
+                        }};
                         widget.label(cx, ids!(title)).set_text(cx, title);
                         widget.label(cx, ids!(value)).set_text(cx, value);
                         widget

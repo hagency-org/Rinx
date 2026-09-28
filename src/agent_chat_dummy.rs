@@ -14,6 +14,8 @@ script_mod! {
         visible: false,
         width: 0, height: 0
     }
+    mod.widgets.ApprovalInbox = View {visible: false width: 0 height: 0}
+    mod.widgets.OctosActionCard = View {visible: false width: 0 height: 0}
     mod.widgets.AgentOpsPanel = View {visible: false width: 0 height: 0}
     mod.widgets.AgentReply = View {visible: false width: 0 height: 0}
 

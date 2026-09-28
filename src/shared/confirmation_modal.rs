@@ -231,3 +231,8 @@ impl ConfirmationModalRef {
         }
     }
 }
+
+/// Open the shared removal confirmation above native management panels.
+pub fn confirm_removal(cx: &mut Cx, content: ConfirmationModalContent) {
+    cx.action(crate::app::ConfirmDeleteAction::Show(std::cell::RefCell::new(Some(content))));
+}

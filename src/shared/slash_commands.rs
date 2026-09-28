@@ -20,6 +20,7 @@ pub struct SlashCommand {
 
 /// The full list of slash commands, in display order
 pub static SLASH_COMMANDS: &[SlashCommand] = &[
+    SlashCommand {name: "invitebot", aliases: &[], description: "Invite a registered agent", usage: "/invitebot"},
     SlashCommand {
         name: "me",
         aliases: &[],
@@ -167,6 +168,7 @@ pub enum SlashCommandOutcome {
 /// "Current" room just refers to the room that this command was typed within.
 #[derive(Debug, Clone)]
 pub enum SlashCommandAction {
+    InviteAgent,
     /// Leave the current room.
     LeaveRoom,
     /// Invite the given user to the current room.
@@ -202,6 +204,7 @@ pub fn matching_commands(query: &str) -> impl Iterator<Item = &'static SlashComm
 /// Text that isn't a command comes back as a regular Markdown message, so callers only
 /// need to handle the three outcomes rather than sniffing for a leading slash themselves.
 pub fn parse_input(text: &str) -> SlashCommandOutcome {
+    if text.trim().eq_ignore_ascii_case("/invitebot") {return SlashCommandOutcome::Action(SlashCommandAction::InviteAgent);}
     // A doubled slash escapes the command, so "//foo" sends the literal text "/foo".
     if text.starts_with("//") {
         return SlashCommandOutcome::Message(RoomMessageEventContent::text_markdown(&text[1..]));

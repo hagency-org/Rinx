@@ -159,7 +159,7 @@ dispatch2 = "0.3"
 
 
 [features]
-default = ["standalone"]
+default = ["standalone", "agent_chat"]
 ## The standalone app's entry point (window, menus, `app_main!`). A host that
 ## links Rinx as a module disables it.
 standalone = ["octos-local", "octos-remote"]

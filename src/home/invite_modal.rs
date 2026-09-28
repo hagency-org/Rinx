@@ -18,6 +18,7 @@ script_mod! {
 
         title := ModalTitle {}
 
+        registered_agents := DropDown {width: Fill labels: ["Registered agents"]}
         user_id_input := RobrixTextInput {
             draw_text +: {
                 text_style: REGULAR_TEXT {font_size: 11},
@@ -108,6 +109,7 @@ pub struct InviteModal {
     #[deref] view: View,
     #[rust] state: InviteModalState,
     #[rust] room_name_id: Option<RoomNameId>,
+    #[rust] agents: Vec<OwnedUserId>,
 }
 
 impl Widget for InviteModal {
@@ -123,6 +125,9 @@ impl Widget for InviteModal {
 
 impl WidgetMatchEvent for InviteModal {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions, _scope: &mut Scope) {
+        if let Some(index) = self.view.drop_down(cx, ids!(registered_agents)).selected(actions) && let Some(user) = index.checked_sub(1).and_then(|i| self.agents.get(i)) {
+            self.view.text_input(cx, ids!(user_id_input)).set_text(cx, user.as_str());
+        }
         let cancel_button = self.view.button(cx, ids!(cancel_button));
 
         // Handle canceling/closing the modal.
@@ -259,6 +264,11 @@ impl InviteModal {
             cx,
             &format!("Invite to {room_name_id}"),
         );
+        let settings = crate::agent_access::current();
+        self.agents = settings.agent_registry.agent_user_ids();
+        self.view.drop_down(cx, ids!(registered_agents)).set_labels(cx, std::iter::once(crate::i18n::tr("Registered agents").into()).chain(settings.agent_registry.agents().map(|(id, entry)|format!("{} ({id})",entry.display_name.as_deref().unwrap_or(id.as_str())))).collect());
+        self.view.drop_down(cx, ids!(registered_agents)).set_selected_item(cx, 0);
+        self.view.drop_down(cx, ids!(registered_agents)).set_visible(cx, !self.agents.is_empty());
         self.state = InviteModalState::WaitingForUserInput;
         self.room_name_id = Some(room_name_id);
 

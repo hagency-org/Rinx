@@ -84,6 +84,23 @@ pub fn is_approval_msgtype(msgtype: &str) -> bool {
     Namespace::of_msgtype(msgtype).is_some()
 }
 
+/// A public notice can navigate to verified private rooms, never authorize a
+/// decision or supply a destination. Reject payloads containing private data.
+pub fn public_approval_notice_agent(content: &serde_json::Value) -> Option<&str> {
+    let msgtype = content.get("msgtype")?.as_str()?;
+    let namespace = Namespace::ALL.into_iter().find(|ns| ns.status_msgtype() == msgtype)?;
+    let detail = content.get(namespace.event_key())?.as_object()?;
+    if content.get("m.relates_to").and_then(|v| v.get("rel_type")).and_then(|v| v.as_str()) == Some("m.replace")
+        || detail.len() != 5
+        || detail.get("version")?.as_u64()? != 1
+        || detail.get("kind")?.as_str()? != "status"
+        || detail.get("state")?.as_str()? != "waiting_for_owner"
+        || detail.get("project")?.as_str()?.is_empty()
+    { return None; }
+    let agent = detail.get("agent")?.as_str()?;
+    (!agent.is_empty() && agent.len() <= 128 && agent.trim() == agent).then_some(agent)
+}
+
 /// The visual style the bridge asked for on a decision button.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActionStyle {
@@ -443,6 +460,9 @@ pub enum ApprovalDecisionState {
     Sending(ApprovalAction),
     /// The verdict was sent successfully.
     Sent(ApprovalAction),
+    OutcomeUnknown(ApprovalAction),
+    Confirmed(String),
+    Unavailable,
 }
 
 /// Per-timeline UI state for approval cards: which requests have been
@@ -528,6 +548,18 @@ impl ApprovalUiState {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn public_notice_navigation_rejects_private_fields_and_edits() {
+        for ns in super::Namespace::ALL {
+            let mut notice = serde_json::json!({"msgtype": ns.status_msgtype(), ns.event_key(): {"version":1,"kind":"status","state":"waiting_for_owner","project":"project","agent":"worker"}});
+            assert_eq!(super::public_approval_notice_agent(&notice), Some("worker"));
+            notice[ns.event_key()]["request_id"] = serde_json::json!("private");
+            assert!(super::public_approval_notice_agent(&notice).is_none());
+            notice[ns.event_key()].as_object_mut().unwrap().remove("request_id");
+            notice["m.relates_to"] = serde_json::json!({"rel_type":"m.replace"});
+            assert!(super::public_approval_notice_agent(&notice).is_none());
+        }
+    }
     use super::*;
 
     const APPROVAL_EVENT_KEY: &str = "com.agentchat.approval";

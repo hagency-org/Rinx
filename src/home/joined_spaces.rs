@@ -284,6 +284,7 @@ impl Widget for JoinedSpaces {
         }
         if let Event::Actions(actions) = event {
             for action in actions {
+                if action.downcast_ref::<super::space_management::SpaceManagementChanged>().is_some_and(|changed|Some(&changed.owner)==current_user_id().as_ref()) {self.refresh(cx);}
                 if let Some(LogoutAction::ClearAppState { .. }) = action.downcast_ref() {
                     self.clear(cx);
                 } else if let Some(loaded) = action.downcast_ref::<LoadedSpaces>() {

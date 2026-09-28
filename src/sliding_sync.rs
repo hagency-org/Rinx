@@ -692,6 +692,7 @@ pub enum MatrixRequest {
     },
     /// Request to send a message to the given room.
     SendMessage {
+        routing: Option<serde_json::Map<String, serde_json::Value>>,
         timeline_kind: TimelineKind,
         message: RoomMessageEventContent,
         replied_to: Option<Reply>,
@@ -777,6 +778,7 @@ pub enum MatrixRequest {
     /// after the session began can still decrypt the verdict.
     #[cfg(feature = "agent_chat")]
     SendAgentChatApprovalVerdict {
+        claim: crate::agent_chat::approval_runtime::Claim,
         timeline_kind: TimelineKind,
         content: serde_json::Value,
         /// The bridge bot that sent the request (the verdict's intended reader).
@@ -1411,6 +1413,7 @@ async fn matrix_worker_task(
                     continue;
                 }
                 let _create_dm_task = Handle::current().spawn(async move {
+                    if !crate::matrix_context::is_current(&client) {return;}
                     if let Some(room) = client.get_dm_room(&user_profile.user_id) {
                         log!("Found existing DM room: {}", room.room_id());
                         Cx::post_action(DirectMessageRoomAction::FoundExisting {
@@ -1424,8 +1427,9 @@ async fn matrix_worker_task(
                         return;
                     }
                     log!("Creating new DM room with {user_profile:?}...");
-                    match client.create_dm(&user_profile.user_id).await {
+                    match crate::agent_access::create_dm(&client, &user_profile.user_id).await {
                         Ok(room) => {
+                            if !crate::matrix_context::is_current(&client) {return;}
                             log!("Successfully created DM room: {}", room.room_id());
                             Cx::post_action(DirectMessageRoomAction::NewlyCreated {
                                 user_profile,
@@ -2187,6 +2191,7 @@ async fn matrix_worker_task(
 
             #[cfg(feature = "agent_chat")]
             MatrixRequest::SendAgentChatApprovalVerdict {
+                claim,
                 timeline_kind,
                 content,
                 bridge_user_id,
@@ -2194,13 +2199,16 @@ async fn matrix_worker_task(
             } => {
                 use crate::agent_chat::ApprovalVerdictResult;
                 let Some((timeline, _sender)) = get_timeline_and_sender(&timeline_kind) else {
+                    claim.complete(crate::agent_chat::approval_state::SendResult::ConfirmedPreSendFailure);
                     log!("BUG: {timeline_kind} not found for send agent-chat approval verdict request");
                     continue;
                 };
                 let room_id = timeline_kind.room_id().to_owned();
                 let _send_verdict_task = Handle::current().spawn(async move {
                     let room = timeline.room();
-                    let fail = |error: String| {
+                    use crate::agent_chat::approval_state::SendResult;
+                    let fail = |error: String, result: SendResult| {
+                        claim.complete(result);
                         error!("Failed to send agent-chat approval verdict to {timeline_kind}: {error}");
                         Cx::post_action(ApprovalVerdictResult::Failed {
                             room_id: room_id.clone(),
@@ -2208,29 +2216,34 @@ async fn matrix_worker_task(
                             error,
                         });
                     };
+                    if !claim.is_current(&room.client()) {claim.complete(SendResult::ConfirmedPreSendFailure); return;}
                     // The bridge may have registered a new device since our outbound session
                     // began; refresh its keys and rotate the session so it can decrypt this.
                     if let Err(error) = room.client().encryption().request_user_identity(&bridge_user_id).await {
-                        fail(format!("could not refresh the bridge bot's device keys: {error}"));
+                        fail(format!("could not refresh the bridge bot's device keys: {error}"), SendResult::ConfirmedPreSendFailure);
                         return;
                     }
                     if let Err(error) = room.discard_room_key().await {
-                        fail(format!("could not rotate the room key: {error}"));
+                        fail(format!("could not rotate the room key: {error}"), SendResult::ConfirmedPreSendFailure);
                         return;
                     }
                     // Sent directly (not via the send queue) so no local-echo machinery
                     // or routing metadata can alter the verdict on its way out.
-                    match room.send_raw("m.room.message", content).await {
+                    if !claim.is_current(&room.client()) {claim.complete(SendResult::ConfirmedPreSendFailure); return;}
+                    let transaction_id: ruma::OwnedTransactionId = claim.transaction_id.clone().into();
+                    match room.send_raw("m.room.message", content).with_transaction_id(&transaction_id).await {
                         Ok(_) => {
+                            claim.complete(SendResult::Sent);
                             log!("Sent agent-chat approval verdict to {timeline_kind}.");
                             Cx::post_action(ApprovalVerdictResult::Sent { room_id, source_event_id });
                         }
-                        Err(error) => fail(error.to_string()),
+                        Err(error) => fail(error.to_string(), SendResult::OutcomeUnknown),
                     }
                 });
             }
 
             MatrixRequest::SendMessage {
+                routing,
                 timeline_kind,
                 message,
                 replied_to,
@@ -2313,7 +2326,7 @@ async fn matrix_worker_task(
                     } else {
                         message.clone().into()
                     };
-                    match timeline.send(content).await {
+                    match timeline.send_with_extra_content(content, routing).await {
                         Ok(_send_handle) => log!("Sent {r_or_m} to {timeline_kind}."),
                         Err(_e) => {
                             error!("Failed to send {r_or_m} to {timeline_kind}: {_e:?}");
@@ -3092,6 +3105,11 @@ pub(crate) fn replace_client(client: Option<Client>) -> Option<Client> {
     crate::octoscript_apps::invalidate_sessions();
     let previous = std::mem::replace(&mut *CLIENT.lock().unwrap(), client);
     crate::octos_service::sync_account();
+    crate::agent_access::publish(None, &Default::default());
+    #[cfg(feature = "agent_chat")]
+    crate::agent_chat::approval_runtime::reset(current_user_id());
+    #[cfg(feature = "agent_chat")]
+    crate::agent_chat::octos::reset();
     previous
 }
 
@@ -5305,6 +5323,9 @@ async fn timeline_subscriber_handler(
     let (mut timeline_items, mut subscriber) = timeline.subscribe().await;
     log!("Received initial timeline update of {} items for room {room_id}, thread {thread_root_event_id:?}.", timeline_items.len());
 
+    for event in timeline_items.iter().filter_map(|item|item.as_event()) {crate::agent_access::discovery::ingest(&timeline.room().client(), &room_id, event);}
+    #[cfg(feature = "agent_chat")]
+    for event in timeline_items.iter().filter_map(|item| item.as_event()) {crate::agent_chat::approval_runtime::ingest(&timeline.room().client(), &room_id, event);}
     if timeline_update_sender.send(TimelineUpdate::FirstUpdate {
         initial_items: timeline_items.clone(),
     }).is_err() {
@@ -5572,6 +5593,9 @@ async fn timeline_subscriber_handler(
             let is_progress_only = num_progress_updates == num_updates;
 
             if num_updates > 0 {
+                if !is_progress_only {for event in timeline_items.iter().filter_map(|item|item.as_event()) {crate::agent_access::discovery::ingest(&timeline.room().client(), &room_id, event);}}
+                #[cfg(feature = "agent_chat")]
+                if !is_progress_only {for event in timeline_items.iter().filter_map(|item| item.as_event()) {crate::agent_chat::approval_runtime::ingest(&timeline.room().client(), &room_id, event);}}
                 // Handle the case where back pagination inserts items at the beginning of the timeline
                 // (meaning the entire timeline needs to be re-drawn),
                 // but there is a virtual event at index 0 (e.g., a day divider).

@@ -20,6 +20,11 @@ script_mod! {
         width: Fill height: Fill flow: Down
         draw_bg.color: #xededed
         explore_header := DetailHeader { title +: {text: #(crate::i18n::tr("Explore Rooms")) i18n_text: "Explore Rooms"} }
+        create_room_space := RobrixNeutralIconButton {
+            width: Fill height: 40 margin: Inset{left: 16 right: 16}
+            text: #(crate::i18n::tr("Create a room or space")) i18n_text: "Create a room or space"
+            icon_walk: Walk{width: 0 height: 0}
+        }
         help_info := DetailNote {
             padding: Inset{left: 16 right: 16 top: 10 bottom: 10}
             text: #(crate::i18n::tr("Find groups and Spaces by name on your server, or enter an alias, ID or Matrix link.")) i18n_text: "Find groups and Spaces by name on your server, or enter an alias, ID or Matrix link."
@@ -435,6 +440,9 @@ impl Widget for AddRoomScreen {
         }
         self.view.handle_event(cx, event, scope);
         if let Event::Actions(actions) = event {
+            if self.view.button(cx, ids!(create_room_space)).clicked(actions) {
+                cx.action(super::space_management::SpaceManagementAction::Open { parent: None });
+            }
             let room_alias_id_input = self.view.text_input(cx, ids!(room_alias_id_input));
             let search_for_room_button = self.view.button(cx, ids!(search_for_room_button));
             let cancel_button = self.view.button(cx, ids!(fetched_room_summary.buttons_view.cancel_button));

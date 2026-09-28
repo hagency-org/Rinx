@@ -383,6 +383,7 @@ script_mod! {
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
+                octos_action_card := mod.widgets.OctosActionCard {}
                 agent_reply := mod.widgets.AgentReply {}
                 link_preview_view := mod.widgets.LinkPreview {}
                 download_section := mod.widgets.MessageDownloadSection {}
@@ -429,6 +430,7 @@ script_mod! {
             mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
+                octos_action_card := mod.widgets.OctosActionCard {}
                 agent_reply := mod.widgets.AgentReply {}
             link_preview_view := mod.widgets.LinkPreview {}
             download_section := mod.widgets.MessageDownloadSection {}
@@ -559,6 +561,7 @@ script_mod! {
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
+                octos_action_card := mod.widgets.OctosActionCard {}
                 agent_reply := mod.widgets.AgentReply {}
                 link_preview_view := mod.widgets.LinkPreview {}
                 download_section := mod.widgets.MessageDownloadSection {}
@@ -1417,7 +1420,18 @@ impl Widget for RoomScreen {
                     }
                 }
 
+                if matches!(action.downcast_ref::<crate::agent_access::AgentAccessAction>(), Some(crate::agent_access::AgentAccessAction::Changed)) || action.downcast_ref::<crate::agent_access::discovery::DiscoveredBots>().is_some() {
+                    if let Some(tl)=self.tl_state.as_mut() {tl.profile_drawn_since_last_update.clear();tl.content_drawn_since_last_update.clear();}
+                    self.view.redraw(cx);
+                }
                 // Handle the outcome of sending an agent-chat approval verdict.
+                #[cfg(feature = "agent_chat")]
+                if let Some(changed) = action.downcast_ref::<crate::agent_chat::approval_runtime::ApprovalStateChanged>() {
+                    if self.room_id() == Some(&changed.room) && let Some(tl) = self.tl_state.as_mut() {
+                        tl.content_drawn_since_last_update.clear();
+                        self.view.redraw(cx);
+                    }
+                }
                 #[cfg(feature = "agent_chat")]
                 if let Some(result) = action.downcast_ref::<ApprovalVerdictResult>() {
                     self.handle_agent_chat_verdict_result(cx, result);
@@ -4014,7 +4028,7 @@ impl RoomScreen {
         let now = current_unix_time_millis();
         let item_range = details.item_id .. details.item_id + 1;
         let pending = matches!(
-            tl.agent_chat_approvals.decision_state(&event_id, &request, now),
+            crate::agent_chat::approval_runtime::decision(timeline_kind.room_id(), &request, now),
             ApprovalDecisionState::Pending,
         );
         if !pending {
@@ -4029,11 +4043,16 @@ impl RoomScreen {
             return;
         }
         let Some(chosen) = request.action(&action.id).cloned() else { return };
+        let claim = match crate::agent_chat::approval_runtime::claim(timeline_kind.room_id(), event_tl_item, &request, &chosen) {
+            Ok(claim) => claim,
+            Err(error) => {enqueue_popup_notification(error, PopupKind::Error, Some(5.0));return;}
+        };
         let content = request.verdict_content(&chosen, &event_id);
         tl.agent_chat_approvals.mark_sending(&event_id, chosen);
         tl.content_drawn_since_last_update.remove(item_range);
         self.view.portal_list(cx, ids!(timeline.list)).redraw(cx);
         submit_async_request(MatrixRequest::SendAgentChatApprovalVerdict {
+            claim,
             timeline_kind,
             content,
             bridge_user_id,
@@ -5442,7 +5461,7 @@ fn populate_message_view(
     if mobile {
         let direct = cx.get_global::<RoomsListRef>().is_direct_room(timeline_kind.room_id()).unwrap_or(false);
         #[cfg(feature = "agent_chat")]
-        let agent = agent_presentation.is_some();
+        let agent = agent_presentation.is_some() || crate::agent_access::framework_label(event_tl_item.sender()).is_some();
         #[cfg(not(feature = "agent_chat"))]
         let agent = false;
         item.view(cx, ids!(content.username_view)).set_visible(cx, !event_tl_item.is_own() && (!direct || agent));
@@ -5564,10 +5583,13 @@ fn populate_message_view(
     // Message widget may have shown a card for a different message before.
     #[cfg(feature = "agent_chat")]
     if !used_cached_item {
+        use crate::agent_chat::octos_card::OctosActionCardWidgetRefExt;
+        item.octos_action_card(cx, ids!(content.octos_action_card)).populate(cx, timeline_kind.room_id(), event_tl_item);
         populate_agent_chat_approval_card(
             cx,
             &item,
             event_tl_item,
+            timeline_kind.room_id(),
             agent_chat_message.as_ref(),
             agent_chat_approvals,
         );
@@ -5621,7 +5643,16 @@ fn populate_message_view(
                             script_apply_eval!(cx, label, { draw_text +: { color: (mod.widgets.RBX_NEUTRAL_FG) } });
                         }
                     }
-                    None => badge.set_visible(cx, false),
+                    None => {
+                        let framework = crate::agent_access::framework_label(event_tl_item.sender());
+                        badge.set_visible(cx, framework.is_some());
+                        if let Some(framework) = framework {
+                            let mut label = item.label(cx, ids!(content.username_view.agent_badge.agent_badge_label));
+                            label.set_text(cx, framework);
+                            script_apply_eval!(cx, badge, {draw_bg +: {color: (mod.widgets.RBX_NEUTRAL_BG)}});
+                            script_apply_eval!(cx, label, {draw_text +: {color: (mod.widgets.RBX_NEUTRAL_FG)}});
+                        }
+                    },
                 }
             }
             new_drawn_status.profile_drawn = profile_drawn;
@@ -5736,15 +5767,23 @@ fn populate_agent_chat_approval_card(
     cx: &mut Cx,
     item: &WidgetRef,
     event_tl_item: &EventTimelineItem,
+    room_id: &RoomId,
     message: Option<&ApprovalMessage>,
     approvals: &mut ApprovalUiState,
 ) {
     let card = item.agent_approval_card(cx, ids!(content.agent_approval_card));
     let (Some(ApprovalMessage::Request(request)), Some(event_id)) = (message, event_tl_item.event_id()) else {
         card.set_state(cx, None);
+        if event_tl_item.event_id().is_some()
+            && event_tl_item.original_json()
+                .and_then(|raw| raw.get_field::<serde_json::Value>("content").ok()).flatten()
+                .is_some_and(|content| crate::agent_chat::approval::public_approval_notice_agent(&content).is_some())
+        {
+            card.show_pending(cx, room_id);
+        }
         return;
     };
-    let decision = approvals.decision_state(event_id, request, current_unix_time_millis());
+    let decision = crate::agent_chat::approval_runtime::decision(room_id, request, current_unix_time_millis());
     if matches!(decision, ApprovalDecisionState::Pending) {
         approvals.track_live(event_id, request.expires_at_millis);
     } else {
@@ -7234,7 +7273,8 @@ impl Message {
     fn is_within_excluded_child(&self, cx: &mut Cx, abs: DVec2, is_long_press: bool) -> bool {
         #[cfg(feature = "agent_chat")]
         let in_approval_card = self.view.widget(cx, ids!(content.agent_approval_card))
-            .area().clipped_rect(cx).contains(abs);
+            .area().clipped_rect(cx).contains(abs)
+            || self.view.widget(cx, ids!(content.octos_action_card)).area().clipped_rect(cx).contains(abs);
         #[cfg(not(feature = "agent_chat"))]
         let in_approval_card = false;
         in_approval_card

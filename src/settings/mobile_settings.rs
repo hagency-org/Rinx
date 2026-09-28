@@ -117,6 +117,8 @@ script_mod! {
                 DetailNote {text: #(crate::i18n::tr("Account and password options open on your homeserver's website.")) i18n_text: "Account and password options open on your homeserver's website."}
             }
             general := ScrollYView {
+                approvals_row := DetailRow {visible: #(cfg!(feature = "agent_chat")) title.text: #(crate::i18n::tr("Approval rooms")) title.i18n_text: "Approval rooms"}
+                agent_access_row := DetailRow {title.text: #(crate::i18n::tr("Agent Access")) title.i18n_text: "Agent Access"}
                 width: Fill height: Fill flow: Down
                 hagency_section := DetailSection {
                     visible: #(cfg!(feature = "agent_chat"))
@@ -357,6 +359,9 @@ impl Widget for MobileSettings {
             }
             if action.downcast_ref::<AccountSettingsAction>().is_some() { self.saving_photo = true; }
         }
+        #[cfg(feature = "agent_chat")]
+        if self.view.navigation_bar_button(cx, ids!(approvals_row)).clicked(actions) {cx.action(crate::agent_chat::approval_inbox::ApprovalInboxAction::Open {project: None});}
+        if self.view.navigation_bar_button(cx, ids!(agent_access_row)).clicked(actions) {cx.action(crate::agent_access::AgentAccessAction::Open);}
         if self.view.button(cx, ids!(header.back)).clicked(actions) { self.back(cx); }
         for (path, page) in [
             (ids!(account_row), Page::Account), (ids!(general_row), Page::General), (ids!(privacy_row), Page::Privacy),

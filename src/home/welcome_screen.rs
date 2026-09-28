@@ -54,7 +54,7 @@ script_mod! {
                     //     color_hover: #0f0,
                     // }
                 }
-                body:"<p>Our Matrix client is under active development, so you may need to use other clients to perform admin actions like creating rooms, kicking/banning users, and starting verification requests.</p>
+                body:"<p>Our Matrix client is under active development, so you may need to use other clients to perform admin actions like kicking/banning users and starting verification requests. Use Explore to create rooms and spaces.</p>
                 <p><br></p>
                 <p>But don't worry, we're constantly expanding the featureset of Rinx!</p>
                 <p><br></p>

@@ -481,6 +481,8 @@ script_mod! {
         }
 
         // Empty in builds without the `agent_chat` feature.
+        approvals := RobrixNeutralIconButton {visible: #(cfg!(feature = "agent_chat")) text: #(crate::i18n::tr("Approval rooms")) i18n_text: "Approval rooms"}
+        agent_access := RobrixNeutralIconButton {text: #(crate::i18n::tr("Agent Access")) i18n_text: "Agent Access"}
         agent_chat_preferences := mod.widgets.AgentChatPreferences {}
     }
 }
@@ -542,6 +544,9 @@ impl AppSettings {
                 enqueue_popup_notification(crate::i18n::format("Could not save language: {error}", &[("error", error.to_string())]), PopupKind::Error, Some(5.0));
             }
         }
+        #[cfg(feature = "agent_chat")]
+        if self.view.button(cx, ids!(approvals)).clicked(actions) {cx.action(crate::agent_chat::approval_inbox::ApprovalInboxAction::Open {project: None});}
+        if self.view.button(cx, ids!(agent_access)).clicked(actions) {cx.action(crate::agent_access::AgentAccessAction::Open);}
         let app_state = scope.data.get_mut::<AppState>().unwrap();
 
         let view_mode_dropdown = self.view.drop_down(cx, ids!(view_mode_dropdown));

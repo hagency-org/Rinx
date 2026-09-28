@@ -216,6 +216,10 @@ script_mod! {
             text: #(crate::i18n::tr("Use these buttons to approve or deny. Text replies do not grant approval. Hagency validates the final decision."))
             i18n_text: "Use these buttons to approve or deny. Text replies do not grant approval. Hagency validates the final decision."
         }
+        pending_approvals := mod.widgets.AgentApprovalSecondaryButton {
+            text: #(crate::i18n::tr("View pending approvals"))
+            i18n_text: "View pending approvals"
+        }
     }
 }
 
@@ -255,11 +259,18 @@ pub struct AgentApprovalCard {
     /// The actions whose buttons are currently visible, so a click can be
     /// mapped back to the action the bridge asked for.
     #[rust] actions: Vec<ApprovalAction>,
+    #[rust] project: Option<matrix_sdk::ruma::OwnedRoomId>,
 }
 
 impl Widget for AgentApprovalCard {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         self.view.handle_event(cx, event, scope);
+        if let Event::Actions(actions) = event
+            && self.view.button(cx, ids!(pending_approvals)).clicked(actions)
+            && let Some(project) = self.project.clone()
+        {
+            cx.action(super::approval_inbox::ApprovalInboxAction::Open { project: Some(project) });
+        }
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
@@ -270,6 +281,10 @@ impl Widget for AgentApprovalCard {
 impl AgentApprovalCard {
     /// Shows the card for `state`, or hides it entirely when `state` is `None`.
     pub fn set_state(&mut self, cx: &mut Cx, state: Option<&ApprovalCardState>) {
+        self.project = None;
+        self.view.button(cx, ids!(pending_approvals)).set_visible(cx, false);
+        self.view.view(cx, ids!(header)).set_visible(cx, true);
+        self.view.label(cx, ids!(summary_label)).set_visible(cx, true);
         let Some(state) = state else {
             self.actions.clear();
             self.view.set_visible(cx, false);
@@ -283,7 +298,10 @@ impl AgentApprovalCard {
             ApprovalDecisionState::Pending => ("Pending", true, None),
             ApprovalDecisionState::Expired => ("Expired", false, None),
             ApprovalDecisionState::Sending(action) => ("Sending…", false, Some(action)),
-            ApprovalDecisionState::Sent(action) => ("Decided", false, Some(action)),
+            ApprovalDecisionState::Sent(action) => ("Sent · awaiting bridge", false, Some(action)),
+            ApprovalDecisionState::OutcomeUnknown(action) => ("Delivery unknown · awaiting bridge", false, Some(action)),
+            ApprovalDecisionState::Confirmed(status) => (status, false, None),
+            ApprovalDecisionState::Unavailable => ("Approval unavailable", false, None),
         };
         self.view.label(cx, ids!(header.status_badge.status_label)).set_text(cx, crate::i18n::tr(status_text));
 
@@ -295,7 +313,7 @@ impl AgentApprovalCard {
             let (visible, text, enabled) = match (offered, chosen) {
                 // After a decision, keep only the chosen button as a disabled receipt.
                 (Some(action), Some(chosen_action)) if chosen_action.id == id => {
-                    (true, format!("✓ {}", crate::i18n::tr(&action.label)), false)
+                    (true, format!("{} {}", if matches!(state.decision, ApprovalDecisionState::Sent(_)) {"↑"} else {"…"}, crate::i18n::tr(&action.label)), false)
                 }
                 (Some(_), Some(_)) => (false, String::new(), false),
                 (Some(action), None) => (live_buttons, crate::i18n::tr(&action.label).to_owned(), live_buttons),
@@ -332,6 +350,20 @@ impl AgentApprovalCard {
 }
 
 impl AgentApprovalCardRef {
+    /// Public notices only open the authenticated room picker for this room.
+    pub fn show_pending(&self, cx: &mut Cx, project: &matrix_sdk::ruma::RoomId) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_state(cx, None);
+            inner.project = Some(project.to_owned());
+            inner.view.set_visible(cx, true);
+            inner.view.view(cx, ids!(header)).set_visible(cx, false);
+            inner.view.label(cx, ids!(summary_label)).set_visible(cx, false);
+            inner.view.view(cx, ids!(button_row)).set_visible(cx, false);
+            inner.view.label(cx, ids!(hint_label)).set_visible(cx, false);
+            inner.view.button(cx, ids!(pending_approvals)).set_visible(cx, true);
+        }
+    }
+
     /// See [`AgentApprovalCard::set_state`].
     pub fn set_state(&self, cx: &mut Cx, state: Option<&ApprovalCardState>) {
         if let Some(mut inner) = self.borrow_mut() {

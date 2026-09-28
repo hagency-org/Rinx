@@ -2,6 +2,9 @@
 //!
 //! See `handle_startup()` for the first code that runs on app startup.
 
+#[cfg(feature = "agent_chat")]
+use crate::agent_chat::approval_inbox::{ApprovalInboxAction, ApprovalInboxWidgetRefExt};
+use crate::agent_access::{AgentAccessAction, AgentAccessPanelWidgetRefExt};
 use std::{
     cell::RefCell,
     collections::{hash_map::DefaultHasher, HashMap},
@@ -32,6 +35,7 @@ use crate::article_app::{ArticleAction, ArticlePanelWidgetRefExt};
 use crate::mini_app::{MiniAppAction, MiniAppPanelWidgetRefExt};
 use crate::forwarding::{ForwardAction, ForwardPanelWidgetRefExt};
 use crate::home::room_history::{RoomHistoryAction, RoomHistoryPanelWidgetRefExt};
+use crate::home::space_management::{SpaceManagementAction, SpaceManagementPanelWidgetRefExt};
 
 /// The app's content without a window, so an OctoSense host can seat it in its
 /// own pane (`crate::module`). The standalone window's body holds the same widget.
@@ -110,6 +114,10 @@ mod embedded_content {
                 tsp_verification_modal := Modal {
                     content := TspVerificationModal {}
                 }
+
+                approval_inbox_modal := Modal {can_dismiss: false content := ApprovalInbox {}}
+                agent_access_modal := Modal {can_dismiss: false content := AgentAccessPanel {}}
+                space_management_modal := Modal {can_dismiss: false content := SpaceManagementPanel {}}
 
                 // A generic modal to confirm any positive action.
                 positive_confirmation_modal := Modal {
@@ -396,6 +404,29 @@ impl MatchEvent for App {
             }
 
             #[cfg(feature = "agent_chat")]
+            if let Some(action) = action.downcast_ref::<ApprovalInboxAction>() {
+                let modal = self.ui.modal(cx, ids!(approval_inbox_modal));
+                self.ui.approval_inbox(cx, ids!(approval_inbox_modal.content)).action(cx, modal, action, &self.app_state);
+                if matches!(action, ApprovalInboxAction::Saved) {self.persist_runtime_state(cx, "approval discovery");}
+            }
+            if let Some(found) = action.downcast_ref::<crate::agent_access::discovery::DiscoveredBots>() {
+                let bots = &mut self.app_state.agent_access.bot_settings;
+                if current_user_id().as_ref() == Some(&found.owner) && bots.enabled && bots.is_room_bound(&found.room) && bots.resolved_bot_user_id(Some(&found.owner)).ok().as_ref() == Some(&found.sender) && bots.record_known_bot_user_ids(found.users.clone()) {
+                    crate::agent_access::publish(current_user_id(), &self.app_state.agent_access);
+                    self.persist_runtime_state(cx, "BotFather discovery");
+                    cx.redraw_all();
+                }
+            }
+            if let Some(action) = action.downcast_ref::<AgentAccessAction>() {
+                let modal = self.ui.modal(cx, ids!(agent_access_modal));
+                self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, action, &self.app_state.agent_access);
+                if matches!(action, AgentAccessAction::Changed) {self.persist_runtime_state(cx, "agent access");cx.redraw_all();}
+            }
+            if let Some(action) = action.downcast_ref::<SpaceManagementAction>() {
+                let modal = self.ui.modal(cx, ids!(space_management_modal));
+                self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, action);
+            }
+            #[cfg(feature = "agent_chat")]
             if let Some(action) = action.downcast_ref::<AgentOpsAction>() {
                 let modal = self.ui.modal(cx, ids!(agent_ops_modal));
                 self.ui.agent_ops_panel(cx, ids!(agent_ops_modal.content)).action(cx, modal, action);
@@ -620,6 +651,7 @@ impl MatchEvent for App {
                     // Ignore the `logged_in` state that was stored persistently.
                     let logged_in_actual = self.app_state.logged_in;
                     self.app_state = app_state.clone();
+                    self.app_state.agent_access.normalize();
                     self.app_state.logged_in = logged_in_actual;
                     // Broadcast the restored preferences first so listeners
                     // (e.g. the Dock's captured `room_screen` template) are
@@ -839,6 +871,16 @@ impl MatchEvent for App {
 
 impl App {
     fn clear_session_ui(&mut self, cx: &mut Cx) {
+        #[cfg(feature = "agent_chat")]
+        {
+            let modal = self.ui.modal(cx, ids!(approval_inbox_modal));
+            self.ui.approval_inbox(cx, ids!(approval_inbox_modal.content)).action(cx, modal, &ApprovalInboxAction::Close, &self.app_state);
+        }
+        let modal = self.ui.modal(cx, ids!(agent_access_modal));
+        self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, &AgentAccessAction::Close, &self.app_state.agent_access);
+        crate::agent_access::publish(None, &Default::default());
+        let modal = self.ui.modal(cx, ids!(space_management_modal));
+        self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);
         crate::assistant::set_current_room(None);
         for window in [HostedWindow::Moments, HostedWindow::Article] {
             self.close_hosted_window(cx, window, true);
@@ -940,6 +982,7 @@ pub fn register_widgets(vm: &mut ScriptVm) {
     crate::agent_chat_dummy::script_mod(vm);
 
     crate::assistant::sheet::script_mod(vm);
+    crate::agent_access::script_mod(vm);
     crate::settings::script_mod(vm);
     // RoomInputBar depends on these Home widgets; preload them before room::script_mod.
     crate::home::location_preview::script_mod(vm);
@@ -973,6 +1016,20 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        if event.back_pressed() || matches!(event, Event::KeyDown(k) if k.key_code == KeyCode::Escape) {
+            // Let a nested destructive-action confirmation consume Back first.
+            if !self.ui.modal(cx, ids!(delete_confirmation_modal)).is_open() && !self.ui.modal(cx, ids!(positive_confirmation_modal)).is_open() {
+                #[cfg(feature = "agent_chat")]
+                {
+                    let modal = self.ui.modal(cx, ids!(approval_inbox_modal));
+                    if modal.is_open() {self.ui.approval_inbox(cx, ids!(approval_inbox_modal.content)).action(cx, modal, &ApprovalInboxAction::Close, &self.app_state); return;}
+                }
+                let modal = self.ui.modal(cx, ids!(agent_access_modal));
+                if modal.is_open() {self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, &AgentAccessAction::Close, &self.app_state.agent_access);return;}
+                let modal = self.ui.modal(cx, ids!(space_management_modal));
+                if modal.is_open() {self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);return;}
+            }
+        }
         // A running mini app owns Back before the room/navigation widgets
         // behind its modal. Close synchronously so a hosting shell sees that
         // the navigation event was consumed by Rinx.
@@ -1002,6 +1059,7 @@ impl AppMain for App {
 
         // Forward events to the MatchEvent trait implementation.
         self.match_event(cx, event);
+        crate::agent_access::publish(current_user_id(), &self.app_state.agent_access);
         let scope = &mut Scope::with_data(&mut self.app_state);
         self.ui.handle_event(cx, event, scope);
         if matches!(event, Event::LiveEdit) {
@@ -1405,6 +1463,9 @@ impl App {
         let destination_room_id = destination_room.room_id();
         let room_state = cx.get_global::<RoomsListRef>().get_room_state(destination_room_id);
         let new_selected_room = match room_state {
+            Some(RoomState::Joined) if crate::sliding_sync::get_client().and_then(|client|client.get_room(destination_room_id)).is_some_and(|room|room.is_space()) => SelectedRoom::Space {
+                space_name_id: destination_room.room_name_id().clone(),
+            },
             Some(RoomState::Joined) => SelectedRoom::JoinedRoom {
                 room_name_id: destination_room.room_name_id().clone(),
             },
@@ -1435,9 +1496,8 @@ impl App {
             room_to_close,
         );
 
-        // Before we navigate to the room, if the AddRoom tab is currently shown,
-        // then we programmatically navigate to the Home tab to show the actual room.
-        if matches!(self.app_state.selected_tab, SelectedTab::AddRoom) {
+        // Management/settings panels can open a room from any top-level tab.
+        if !matches!(self.app_state.selected_tab, SelectedTab::Home | SelectedTab::Space {..}) {
             cx.action(NavigationBarAction::GoToHome);
         }
         cx.widget_action(
@@ -1489,6 +1549,15 @@ pub struct AppState {
     /// App-wide user preferences/settings.
     #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
     pub app_prefs: AppPreferences,
+    #[serde(default, flatten)]
+    pub agent_access: crate::agent_access::model::AgentAccessSettings,
+    /// Discovery hints are persisted; their validation is never restored.
+    #[cfg(feature = "agent_chat")]
+    #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
+    pub(crate) approval_markers: crate::agent_chat::approval_state::ApprovalMarkerIndex,
+    #[cfg(feature = "agent_chat")]
+    #[serde(default, deserialize_with = "crate::utils::deserialize_or_default")]
+    pub(crate) approval_markers_by_namespace: HashMap<String, crate::agent_chat::approval_state::ApprovalMarkerIndex>,
 }
 
 impl AppState {

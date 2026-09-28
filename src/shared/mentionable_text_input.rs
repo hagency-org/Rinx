@@ -236,10 +236,12 @@ impl MentionableTextInput {
                 #[cfg(feature = "agent_chat")]
                 let items = slash_commands::matching_commands(query)
                     .chain(self.agent_chat_commands.matching(query))
+                    .chain(crate::agent_access::commands::matching(crate::agent_access::commands::enabled(self.room_id.as_deref(), self.room_members.as_deref().map(Vec::as_slice)), query))
                     .map(MentionItem::Command)
                     .collect();
                 #[cfg(not(feature = "agent_chat"))]
                 let items = slash_commands::matching_commands(query)
+                    .chain(crate::agent_access::commands::matching(crate::agent_access::commands::enabled(self.room_id.as_deref(), self.room_members.as_deref().map(Vec::as_slice)), query))
                     .map(MentionItem::Command)
                     .collect();
                 popup_ref.set_results(cx, uid, Arc::new(items), false, kind.empty_message());
@@ -457,6 +459,9 @@ impl MentionableTextInputRef {
     /// If it's a message, it will already contain the mentions present in `entered_text`.
     pub fn parse_input(&self, entered_text: &str) -> SlashCommandOutcome {
         let Some(inner) = self.borrow() else { return slash_commands::parse_input(entered_text) };
+        if slash_commands::split_command(entered_text).is_some_and(|(name, _)| crate::agent_access::commands::addressed_to_registered(name) || crate::agent_access::commands::contains(crate::agent_access::commands::enabled(inner.room_id.as_deref(), inner.room_members.as_deref().map(Vec::as_slice)), name)) {
+            return SlashCommandOutcome::Message(matrix_sdk::ruma::events::room::message::RoomMessageEventContent::text_plain(entered_text));
+        }
         // Agent-chat workflow commands are not ours to interpret: they go out as
         // plain text for the coordinator agent, so they bypass the command parser.
         #[cfg(feature = "agent_chat")]
