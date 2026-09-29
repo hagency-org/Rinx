@@ -11,6 +11,9 @@ import dev.makepad.android.MakepadActivity;
  * Rinx's hook into Makepad's Android activity (cargo-makepad loads
  * {@code <package>.MakepadAppExtension} by name in onCreate).
  *
+ * <p>Back at the root of Rinx's navigation backgrounds the app, as Android
+ * does for a root activity; Makepad's view swallows the key otherwise.
+ *
  * <p>Makepad's activity asks for location in every app's first onResume, to
  * feed OctoSense's navigation card. Rinx only needs location when the person
  * shares it, and robius-location asks for it then. Asking at launch put the
@@ -21,7 +24,10 @@ import dev.makepad.android.MakepadActivity;
 public final class MakepadAppExtension implements MakepadActivity.ApplicationExtension {
     private static final String TAG = "Rinx";
 
+    private final MakepadActivity mActivity;
+
     public MakepadAppExtension(MakepadActivity activity) {
+        mActivity = activity;
         try {
             Field requested = MakepadActivity.class.getDeclaredField("mLocationPermissionRequested");
             requested.setAccessible(true);
@@ -31,7 +37,12 @@ public final class MakepadAppExtension implements MakepadActivity.ApplicationExt
         }
     }
 
-    @Override public void command(String channel, String payload) {}
+    /** Rinx's Rust side sends "rinx.back" for a Back nothing in Rinx took. */
+    @Override public void command(String channel, String payload) {
+        if ("rinx.back".equals(channel)) {
+            mActivity.moveTaskToBack(true);
+        }
+    }
     @Override public void onResume() {}
     @Override public void onPause() {}
     @Override public void onIntent(Intent intent) {}

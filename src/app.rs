@@ -1016,18 +1016,23 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
-        if event.back_pressed() || matches!(event, Event::KeyDown(k) if k.key_code == KeyCode::Escape) {
+        // Peek at Back instead of `back_pressed()`, which marks it handled: Back
+        // is taken only when it closes one of these modals. Otherwise it goes on
+        // to Rinx's views and, at the root of Rinx's navigation, to the host
+        // (OctoSense leaves the app; Android backgrounds it).
+        let back_unhandled = matches!(event, Event::BackPressed { handled } if !handled.get());
+        if back_unhandled || matches!(event, Event::KeyDown(k) if k.key_code == KeyCode::Escape) {
             // Let a nested destructive-action confirmation consume Back first.
             if !self.ui.modal(cx, ids!(delete_confirmation_modal)).is_open() && !self.ui.modal(cx, ids!(positive_confirmation_modal)).is_open() {
                 #[cfg(feature = "agent_chat")]
                 {
                     let modal = self.ui.modal(cx, ids!(approval_inbox_modal));
-                    if modal.is_open() {self.ui.approval_inbox(cx, ids!(approval_inbox_modal.content)).action(cx, modal, &ApprovalInboxAction::Close, &self.app_state); return;}
+                    if modal.is_open() {event.back_pressed(); self.ui.approval_inbox(cx, ids!(approval_inbox_modal.content)).action(cx, modal, &ApprovalInboxAction::Close, &self.app_state); return;}
                 }
                 let modal = self.ui.modal(cx, ids!(agent_access_modal));
-                if modal.is_open() {self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, &AgentAccessAction::Close, &self.app_state.agent_access);return;}
+                if modal.is_open() {event.back_pressed(); self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, &AgentAccessAction::Close, &self.app_state.agent_access);return;}
                 let modal = self.ui.modal(cx, ids!(space_management_modal));
-                if modal.is_open() {self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);return;}
+                if modal.is_open() {event.back_pressed(); self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);return;}
             }
         }
         // A running mini app owns Back before the room/navigation widgets
@@ -1066,6 +1071,14 @@ impl AppMain for App {
             crate::i18n::refresh_ui(cx, &self.ui);
         }
         self.handle_lifecycle_event(cx, event);
+        // Back that nothing in Rinx took is at the root of its navigation. A
+        // host decides what that means; standalone on Android, Makepad's view
+        // has swallowed the key, so Rinx's Android extension backgrounds the
+        // app as Android does for a root activity.
+        #[cfg(target_os = "android")]
+        if !self.embedded && matches!(event, Event::BackPressed { handled } if !handled.get()) {
+            cx.android_integration("rinx.back", "");
+        }
 
     }
 }
@@ -1878,4 +1891,54 @@ pub enum ConfirmDeleteAction {
     /// and that that one entity can take ownership of the content object,
     /// which avoids having to clone it.
     Show(RefCell<Option<ConfirmationModalContent>>),
+}
+
+#[cfg(test)]
+mod back_navigation_tests {
+    use super::*;
+
+    /// Rinx as OctoSense seats it: the window-less `RinxContent`, signed out.
+    fn embedded_app(cx: &mut Cx) -> App {
+        let window = WindowHandle::new(cx);
+        window.cancel_initial_create(cx);
+        cx.with_vm(|vm| {
+            makepad_widgets::script_mod(vm);
+            register_widgets(vm);
+            let component = App::script_component(vm);
+            let value = script_eval!(vm, {
+                #(component) { ui: mod.widgets.RinxContent {} }
+            });
+            let mut app = App::script_from_value(vm, value);
+            app.embedded = true;
+            app
+        })
+    }
+
+    /// Delivers Back as the host shell does and reports whether Rinx took it.
+    fn back(cx: &mut Cx, app: &mut App) -> bool {
+        let event = Event::BackPressed { handled: std::cell::Cell::new(false) };
+        AppMain::handle_event(app, cx, &event);
+        matches!(event, Event::BackPressed { handled } if handled.get())
+    }
+
+    #[test]
+    fn back_at_the_root_is_left_to_the_host() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        assert!(!app.app_state.logged_in);
+        assert!(!back(&mut cx, &mut app), "Back on the sign-in screen must leave Rinx");
+        app.app_state.logged_in = true;
+        assert!(!back(&mut cx, &mut app), "Back on the room list must leave Rinx");
+    }
+
+    #[test]
+    fn back_closes_an_open_rinx_modal() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        let modal = app.ui.modal(&mut cx, ids!(space_management_modal));
+        modal.open(&mut cx);
+        assert!(back(&mut cx, &mut app), "Back must close the open modal");
+        assert!(!modal.is_open());
+        assert!(!back(&mut cx, &mut app), "With the modal closed, Back goes to the host");
+    }
 }
