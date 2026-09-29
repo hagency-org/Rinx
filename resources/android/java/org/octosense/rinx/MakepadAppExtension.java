@@ -1,0 +1,39 @@
+package org.octosense.rinx;
+
+import android.content.Intent;
+import android.util.Log;
+
+import java.lang.reflect.Field;
+
+import dev.makepad.android.MakepadActivity;
+
+/**
+ * Rinx's hook into Makepad's Android activity (cargo-makepad loads
+ * {@code <package>.MakepadAppExtension} by name in onCreate).
+ *
+ * <p>Makepad's activity asks for location in every app's first onResume, to
+ * feed OctoSense's navigation card. Rinx only needs location when the person
+ * shares it, and robius-location asks for it then. Asking at launch put the
+ * permission dialog over Rinx's first frame on every fresh install, so the
+ * extension marks that request as already made. This hook can go once
+ * cargo-makepad lets an app opt out of the launch-time location request.
+ */
+public final class MakepadAppExtension implements MakepadActivity.ApplicationExtension {
+    private static final String TAG = "Rinx";
+
+    public MakepadAppExtension(MakepadActivity activity) {
+        try {
+            Field requested = MakepadActivity.class.getDeclaredField("mLocationPermissionRequested");
+            requested.setAccessible(true);
+            requested.setBoolean(activity, true);
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            Log.w(TAG, "Could not defer Makepad's launch-time location request", e);
+        }
+    }
+
+    @Override public void command(String channel, String payload) {}
+    @Override public void onResume() {}
+    @Override public void onPause() {}
+    @Override public void onIntent(Intent intent) {}
+    @Override public void onDestroy() {}
+}
