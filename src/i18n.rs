@@ -38,6 +38,11 @@ impl Language {
 static LANGUAGE: OnceLock<AtomicU8> = OnceLock::new();
 fn language_cell() -> &'static AtomicU8 {
     LANGUAGE.get_or_init(|| {
+        // Unit tests see the English UI whatever language the person picked:
+        // they never read the real data folder's `ui-language.json`.
+        if cfg!(test) {
+            return AtomicU8::new(Language::English.index() as u8);
+        }
         let language: Language = std::fs::read(crate::app_data_dir().join("ui-language.json"))
             .ok()
             .and_then(|bytes| serde_json::from_slice(&bytes).ok())
