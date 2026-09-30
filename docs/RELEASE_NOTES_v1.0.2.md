@@ -15,7 +15,7 @@ A maintenance release. Standalone Rinx now builds on the same framework, App Hub
   - the Makepad runtime moves to Octoscript-Makepad `cb66de07`;
   - the node model moves to Octoscript `dbd48cfb`;
   - the assistant's search engines now run on that same Octoscript.
-- **App Hub:** moves to `8512be70`, the revision OctoSense pins. This applies to Rinx and to its system-apps and mini app catalog crates.
+- **App Hub:** moves to `0f332112`, App Hub on the same Makepad (`1f3b1ded`) and the revision OctoSense pins with it. This applies to Rinx and to its system-apps and mini app catalog crates.
 - **Assistant (Octos):** the app-peers contract now comes from current OctoSense.
   - Standalone Rinx's local runtime moves to octos `fe08d8e6`, the revision OctoSense's kernel uses.
   - The packaged `octos` runtime is built from that same revision.

@@ -7,4 +7,4 @@ license = "Apache-2.0"
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-octosense-app-policy = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub", rev = "8512be70b89b366e6d6ebf93e807188c4313c3c0" }
+octosense-app-policy = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub", rev = "0f332112f0b5a379c5bb33790df74b21597190cf" }
