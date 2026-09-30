@@ -218,7 +218,7 @@ impl MiniAppsPanel {
             self.package = None;
             let package = Package::load_builtin(&app.manifest.id, &crate::app_data_dir().join("miniapps/imports"))?;
             self.show_import(cx);
-            self.view.text_input(cx, ids!(room)).set_text(cx, "");
+            self.view.text_input(cx, ids!(import_form.room)).set_text(cx, "");
             self.review_package(cx, package)?;
         }
         Ok(())
@@ -326,7 +326,7 @@ impl MiniAppsPanel {
         self.review_package(cx, package)
     }
     fn review_package(&mut self, cx: &mut Cx, package: Package) -> Result<(), String> {
-        let room = self.view.text_input(cx, ids!(room)).text();
+        let room = self.view.text_input(cx, ids!(import_form.room)).text();
         if !room.trim().is_empty() {
             ruma::RoomId::parse(room.trim()).map_err(|_| "Invalid Matrix room ID")?;
         }
@@ -349,7 +349,7 @@ impl MiniAppsPanel {
         let account = crate::sliding_sync::current_user_id()
             .ok_or("Log in to Matrix before running a mini app")?
             .to_string();
-        let room = self.view.text_input(cx, ids!(room)).text();
+        let room = self.view.text_input(cx, ids!(import_form.room)).text();
         if room.trim() != self.reviewed_room {
             return Err("Room access changed. Review the bundle again".into());
         }
@@ -739,7 +739,7 @@ impl Widget for MiniAppsPanel {
                             if crate::sliding_sync::current_user_id().is_none_or(|user| user.as_str() != account) { continue; }
                             self.return_to_hub = true;
                             self.reviewed_room = room.clone().unwrap_or_default();
-                            self.view.text_input(cx, ids!(room)).set_text(cx, &self.reviewed_room);
+                            self.view.text_input(cx, ids!(import_form.room)).set_text(cx, &self.reviewed_room);
                             let result = Package::load_verified(bundle.clone(), &crate::app_data_dir().join("miniapps/imports"))
                                 .and_then(|package| { self.package = Some(package); self.run(cx) });
                             if let Err(error) = result {
@@ -885,6 +885,10 @@ impl MiniAppsPanelRef {
 mod tests {
     use super::*;
 
+    fn tempfile_path_for_room_test() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("rinx-import-room-test-{}", std::process::id()))
+    }
+
     #[test]
     fn native_panel_keeps_catalog_hub_and_import_back_navigation_separate() {
         let mut cx = Cx::new(Box::new(|_, _| {}));
@@ -901,6 +905,17 @@ mod tests {
             assert!(errors.is_empty(), "Mini-app panel script errors: {errors:?}");
             panel
         });
+        // The hidden Hub also has a `room` DropDown. Generic ids!(room)
+        // resolves it first, losing a developer-import room grant.
+        let room = "!import-room:example.org";
+        panel.view.text_input(&cx, ids!(import_form.room)).set_text(&mut cx, room);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/miniapps/matrix-octos-script");
+        let snapshots = tempfile_path_for_room_test();
+        let package = Package::load_in(&path, &snapshots).expect("example bundle");
+        panel.review_package(&mut cx, package).expect("room review");
+        assert_eq!(panel.reviewed_room, room);
+        assert!(panel.review_notice.contains(&format!("Allowed room: {room}")));
+        let _ = std::fs::remove_dir_all(snapshots);
         panel.show_catalog(&mut cx);
         assert!(panel.navigate_back(&mut cx), "Only the outer catalog closes");
         panel.show_hub(&mut cx);
