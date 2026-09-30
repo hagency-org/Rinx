@@ -398,7 +398,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 [[package]]
 name = "makepad-markdown"
 version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/makepad?rev=db4691d0e07dc9d1e498f0430ecfaadc4ae15f8f#db4691d0e07dc9d1e498f0430ecfaadc4ae15f8f"
+source = "git+https://github.com/OctoSense-org/makepad?rev=a5a3cf5b0dbd1b56c25defe6d98479f25843e770#a5a3cf5b0dbd1b56c25defe6d98479f25843e770"
 dependencies = [
  "blake3",
  "comrak",

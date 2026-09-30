@@ -310,7 +310,7 @@ jobs:
             libx11-dev \
             libasound2-dev \
             libpulse-dev \
-            libwayland-dev libxkbcommon-dev \
+            libwayland-dev libxkbcommon-dev libdrm-dev \
             libegl1
 
       - name: Install Rust Stable

@@ -16,4 +16,5 @@ runs:
     - name: Install cargo-makepad
       shell: bash
       run: |
-        cargo install --force --git "${{ steps.makepad.outputs.repo }}" --rev "${{ steps.makepad.outputs.rev }}" cargo-makepad
+        echo "Makepad ${{ steps.makepad.outputs.repo }} @ ${{ steps.makepad.outputs.rev }}"
+        bash "$GITHUB_ACTION_PATH/scripts/install-cargo-makepad.sh" "${{ inputs.lockfile }}" "${{ steps.makepad.outputs.rev }}"

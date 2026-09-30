@@ -52,7 +52,7 @@ jobs:
             libx11-dev \
             libasound2-dev \
             libpulse-dev \
-            libwayland-dev libxkbcommon-dev
+            libwayland-dev libxkbcommon-dev libdrm-dev
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
