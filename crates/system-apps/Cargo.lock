@@ -77,9 +77,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
-name = "octosense-app-policy"
-version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/OctoSense-App-Hub?rev=0f332112f0b5a379c5bb33790df74b21597190cf#0f332112f0b5a379c5bb33790df74b21597190cf"
+name = "octosense-app-contract"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6df5ab53906a90e05be4e32693728539486f404bd8639d2782534338631200bf"
 dependencies = [
  "blake3",
  "serde",
@@ -108,7 +109,7 @@ dependencies = [
 name = "rinx-system-apps"
 version = "0.1.0"
 dependencies = [
- "octosense-app-policy",
+ "octosense-app-contract",
  "serde",
  "serde_json",
 ]

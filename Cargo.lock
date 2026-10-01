@@ -5707,7 +5707,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "07033963ba89ebaf1584d767badaa2e8fcec21aedea6b8c0346d487d49c28667"
 dependencies = [
  "cfg-if 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "windows-targets 0.48.5",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
@@ -8078,19 +8078,14 @@ dependencies = [
 ]
 
 [[package]]
-name = "octosense-app-hub"
-version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/OctoSense-App-Hub?rev=0f332112f0b5a379c5bb33790df74b21597190cf#0f332112f0b5a379c5bb33790df74b21597190cf"
+name = "octosense-app-contract"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6df5ab53906a90e05be4e32693728539486f404bd8639d2782534338631200bf"
 dependencies = [
- "base64 0.22.1",
  "blake3",
- "ed25519-dalek 3.0.0",
- "hex",
- "octosense-app-policy",
- "rand_core 0.9.3",
  "serde",
  "serde_json",
- "ureq",
 ]
 
 [[package]]
@@ -8106,17 +8101,6 @@ dependencies = [
  "tokio-tungstenite 0.24.0",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "octosense-app-policy"
-version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/OctoSense-App-Hub?rev=0f332112f0b5a379c5bb33790df74b21597190cf#0f332112f0b5a379c5bb33790df74b21597190cf"
-dependencies = [
- "blake3",
- "makepad-widgets",
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -9483,7 +9467,7 @@ dependencies = [
 
 [[package]]
 name = "rinx"
-version = "1.0.2"
+version = "1.1.0"
 dependencies = [
  "anyhow",
  "arboard",
@@ -9526,8 +9510,8 @@ dependencies = [
  "octoscript-makepad",
  "octoscript-ui-l0",
  "octoscript-widgets",
+ "octosense-app-contract",
  "octosense-app-peers",
- "octosense-app-policy",
  "percent-encoding",
  "pulldown-cmark 0.13.0",
  "quinn",
@@ -9567,10 +9551,14 @@ dependencies = [
 name = "rinx-miniapp-catalog"
 version = "0.1.0"
 dependencies = [
- "octosense-app-hub",
- "octosense-app-policy",
+ "base64 0.22.1",
+ "ed25519-dalek 3.0.0",
+ "hex",
+ "octosense-app-contract",
+ "rand_core 0.9.3",
  "serde",
  "serde_json",
+ "ureq",
  "uuid",
 ]
 
@@ -9586,7 +9574,7 @@ dependencies = [
 name = "rinx-system-apps"
 version = "0.1.0"
 dependencies = [
- "octosense-app-policy",
+ "octosense-app-contract",
  "serde",
  "serde_json",
 ]

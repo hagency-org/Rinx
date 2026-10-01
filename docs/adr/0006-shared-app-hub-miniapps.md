@@ -41,6 +41,17 @@ compatibility; it owns no signing scheme or script engine. A serial worker does
 network/disk operations away from the UI thread. Its data root is account scoped.
 No network response or worker result carries authority into another account.
 
+**Amended for Rinx 1.1.0 (OctoSense ADR 0005, the app contract).** Rinx no
+longer links `octosense-app-hub` or `octosense-app-policy`, so an App Hub change
+does not force a Rinx release. The manifest, policy resolution, digest and
+publisher-signature checks and package running come from
+`octosense-app-contract` 1.x on crates.io. The catalog client (catalog and pack
+formats, anchor and working-key signatures, publisher keys, freshness, install
+admission, withdrawal) is Rinx's own `rinx-miniapp-catalog::hub`, reading App
+Hub's unchanged publication format and anchor; it verifies a catalog over its
+bytes as received. The Splash sandbox is Rinx's own (`src/miniapps/sandbox.rs`),
+built from the contract's `AppPolicy` and never wider than it.
+
 Catalog acceptance persists the verified sequence before installation; stale or
 unverifiable refreshes do not replace trusted cached state. A verified withdrawal
 is honored even when persistence fails. Install consent binds the entire catalog

@@ -10,16 +10,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !manifest["integrity"]["signature"].is_null() {
         return Err("This tool does not modify signed manifests".into());
     }
-    let digest = octosense_app_policy::digest_dir(&dir)?;
+    let digest = octosense_app_contract::digest_dir(&dir)?;
     manifest["integrity"]["bundle_blake3"] = digest.into();
     let json = serde_json::to_string_pretty(&manifest)?;
-    let parsed = octosense_app_policy::AppManifest::parse(&json)?;
-    octosense_app_policy::policy::resolve(
+    let parsed = octosense_app_contract::AppManifest::parse(&json)?;
+    octosense_app_contract::policy::resolve(
         &parsed,
-        &octosense_app_policy::HostLimits {
-            require_signature: false,
-            ..Default::default()
-        },
+        &octosense_app_contract::HostLimits::default().with_require_signature(false),
     )?;
     std::fs::write(&path, json + "\n")?;
     println!("Packaged {} {}", parsed.id, parsed.version);

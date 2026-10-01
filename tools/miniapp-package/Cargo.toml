@@ -4,5 +4,6 @@ version = "0.1.0"
 edition = "2024"
 [workspace]
 [dependencies]
-octosense-app-policy = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub.git", rev = "b0591e2caa0dc5c62927f7b85dbf826a50618a03" }
+## The app contract (OctoSense ADR 0005), by version: never an App Hub commit.
+octosense-app-contract = "1"
 serde_json = "1"

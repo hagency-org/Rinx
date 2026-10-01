@@ -49,7 +49,7 @@ impl Fixture {
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        manifest.integrity.bundle_blake3 = octosense_app_policy::digest_dir(&root).unwrap();
+        manifest.integrity.bundle_blake3 = octosense_app_contract::digest_dir(&root).unwrap();
         hub::sign_manifest(&self.publisher, &mut manifest, "test-publisher").unwrap();
         fs::write(
             root.join("manifest.json"),

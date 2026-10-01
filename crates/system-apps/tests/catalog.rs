@@ -55,7 +55,7 @@ fn script_roundtrip_uses_canonical_digest_and_detects_modified_content_and_manif
     app.materialize(&target).unwrap();
     assert_eq!(
         app.manifest.integrity.bundle_blake3,
-        octosense_app_policy::digest_dir(&target).unwrap()
+        octosense_app_contract::digest_dir(&target).unwrap()
     );
     fs::write(target.join("main.splash"), "changed").unwrap();
     assert!(app.verify(&target).is_err());

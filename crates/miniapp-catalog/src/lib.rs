@@ -1,8 +1,11 @@
-//! Rinx presentation/lifecycle around App Hub's authoritative catalog, pack,
-//! signature and policy implementation. No new publication format or keys.
-pub use octosense_app_hub as hub;
+//! Rinx's mini-app library: App Hub's signed catalog read by Rinx's own
+//! client ([`hub`]), under the app contract (`octosense-app-contract` 1.x,
+//! OctoSense ADR 0005). No new publication format or keys: the catalog,
+//! packs and anchor are App Hub's; the code that reads them is Rinx's, so
+//! an App Hub change does not force a Rinx release.
+pub mod hub;
 use hub::{Entry, Store};
-use octosense_app_policy::{AppManifest, HostLimits};
+use octosense_app_contract::{AppManifest, HostLimits};
 use serde::{Deserialize, Serialize};
 use std::{
     fs,
@@ -109,7 +112,7 @@ impl VerifiedBundle {
             return Err("Installed manifest differs from the verified catalog".into());
         }
         let keys = hub::PublisherKeys::new().with(&self.publisher, &self.publisher_key);
-        octosense_app_policy::admit_digest(&local, &octosense_app_policy::digest_dir(root)?, &keys)
+        octosense_app_contract::admit_digest(&local, &octosense_app_contract::digest_dir(root)?, &keys)
     }
 }
 
@@ -129,12 +132,13 @@ pub fn compatible(
             "This app requires a Hub agent profile; Rinx provides explicit Octos services".into(),
         );
     }
-    if let Some(about) = entry.and_then(|e| e.listing.as_ref())
+    if let Some(entry) = entry
+        && let Some(about) = entry.about()?
         && !about.platforms.iter().any(|p| p == platform)
     {
         return Err(format!("The publisher has not listed {platform} support"));
     }
-    octosense_app_policy::policy::resolve(manifest, &HostLimits::default())?;
+    octosense_app_contract::policy::resolve(manifest, &HostLimits::default())?;
     for cap in &manifest.capabilities {
         if !matches!(cap.as_str(), "storage" | "net" | "images" | "clipboard")
             && !cap.starts_with("matrix.")
@@ -216,8 +220,8 @@ impl Client {
     }
     fn accept(&mut self, json: &str) -> Result<(), String> {
         let mut next = Store::new(&self.anchor, &self.root, HostLimits::default());
-        if let Some(old) = self.store.catalog() {
-            next.accept_catalog(&serde_json::to_string(old).map_err(err)?)?;
+        if let Some(old) = self.store.catalog_json() {
+            next.accept_catalog(old)?;
         }
         next.accept_catalog(json)?;
         let catalog = next.catalog().unwrap();
@@ -227,7 +231,7 @@ impl Client {
         }
         if let Some(old) = self.store.catalog()
             && catalog.sequence == old.sequence
-            && catalog.signing_bytes()? != old.signing_bytes()?
+            && next.catalog_signing_bytes() != self.store.catalog_signing_bytes()
         {
             return Err("The Hub changed an existing catalog sequence".into());
         }
@@ -380,8 +384,7 @@ impl Client {
             &work.0.join("verified"),
             HostLimits::default(),
         );
-        prepared
-            .accept_catalog(&serde_json::to_string(self.store.catalog().unwrap()).map_err(err)?)?;
+        prepared.accept_catalog(self.store.catalog_json().unwrap())?;
         prepared.install_staged(
             &consent.id,
             &staged,

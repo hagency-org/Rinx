@@ -358,25 +358,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "octosense-app-hub"
-version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/OctoSense-App-Hub?rev=0f332112f0b5a379c5bb33790df74b21597190cf#0f332112f0b5a379c5bb33790df74b21597190cf"
-dependencies = [
- "base64 0.22.1",
- "blake3",
- "ed25519-dalek",
- "hex",
- "octosense-app-policy",
- "rand_core 0.9.5",
- "serde",
- "serde_json",
- "ureq",
-]
-
-[[package]]
-name = "octosense-app-policy"
-version = "0.1.0"
-source = "git+https://github.com/OctoSense-org/OctoSense-App-Hub?rev=0f332112f0b5a379c5bb33790df74b21597190cf#0f332112f0b5a379c5bb33790df74b21597190cf"
+name = "octosense-app-contract"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6df5ab53906a90e05be4e32693728539486f404bd8639d2782534338631200bf"
 dependencies = [
  "blake3",
  "serde",
@@ -464,11 +449,15 @@ dependencies = [
 name = "rinx-miniapp-catalog"
 version = "0.1.0"
 dependencies = [
- "octosense-app-hub",
- "octosense-app-policy",
+ "base64 0.22.1",
+ "ed25519-dalek",
+ "hex",
+ "octosense-app-contract",
+ "rand_core 0.9.5",
  "serde",
  "serde_json",
  "tempfile",
+ "ureq",
  "uuid",
 ]
 

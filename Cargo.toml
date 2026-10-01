@@ -10,7 +10,7 @@ license = "Apache-2.0"
 readme = "README.md"
 categories = ["gui"]
 repository = "https://github.com/upstreamlabs/Rinx"
-version = "1.0.2"
+version = "1.1.0"
 metadata.makepad-auto-version = "zqpv-Yj-K7WNVK2I8h5Okhho46Q="
 
 [dependencies]
@@ -26,7 +26,11 @@ octosense-app-peers = { git = "https://github.com/OctoSense-org/OctoSense.git", 
 octoscript-ui-l0 = { git = "https://github.com/OctoSense-org/Octoscript.git", rev = "dbd48cfb799551c11e30970c393777d29644a605" }
 octoscript-makepad = { git = "https://github.com/OctoSense-org/Octoscript-Makepad.git", rev = "cb66de073469063abeb2a5ab2a2bbf3cdb365745" }
 octoscript-widgets = { git = "https://github.com/OctoSense-org/Octoscript-Makepad.git", rev = "cb66de073469063abeb2a5ab2a2bbf3cdb365745" }
-octosense-app-policy = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub", rev = "0f332112f0b5a379c5bb33790df74b21597190cf", features = ["splash"] }
+## The app contract (OctoSense ADR 0005): manifest, policy, integrity and running
+## a package, by version from crates.io. Rinx names no App Hub commit, so an App
+## Hub change does not force a Rinx release; the mini-app catalog client and the
+## Splash sandbox are Rinx's own (crates/miniapp-catalog, src/miniapps/sandbox.rs).
+octosense-app-contract = "1"
 article-makepad = { path = "crates/article-makepad" }
 ## The OctoSense module contract. Only a host build uses it, and the host redirects
 ## all of makepad to its own prepared checkout of the same OctoSense-org/makepad

@@ -3,13 +3,19 @@ name = "rinx-miniapp-catalog"
 version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0 AND MIT"
-description = "Rinx library and compatibility adapter for the shared OctoSense App Hub"
+description = "Rinx's mini-app library: App Hub's signed catalog, read under the OctoSense app contract"
 
 [workspace]
 
 [dependencies]
-octosense-app-hub = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub", rev = "0f332112f0b5a379c5bb33790df74b21597190cf" }
-octosense-app-policy = { git = "https://github.com/OctoSense-org/OctoSense-App-Hub", rev = "0f332112f0b5a379c5bb33790df74b21597190cf" }
+## The app contract (OctoSense ADR 0005), by version: never an App Hub commit.
+octosense-app-contract = "1"
+## Reading and verifying App Hub's catalog (Rinx's own client, `hub`).
+base64 = "0.22"
+ed25519-dalek = { version = "3", features = ["rand_core"] }
+hex = "0.4"
+rand_core = { version = "0.9", features = ["os_rng"] }
+ureq = "3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }

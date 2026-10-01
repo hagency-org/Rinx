@@ -1,6 +1,6 @@
 //! Frozen canonical OctoSense bundles. Catalog and unsigned developer imports
 //! have separate admission paths; both verify the bytes actually executed.
-use octosense_app_policy::{AppManifest, AppPolicy};
+use octosense_app_contract::{AppManifest, AppPolicy};
 use serde::Deserialize;
 use serde_json::Value;
 use std::{
@@ -92,22 +92,19 @@ impl Package {
         if let Some(bundle) = &verified {
             bundle.verify(root)?;
         } else {
-            octosense_app_policy::admit_digest(
+            octosense_app_contract::admit_digest(
                 &manifest,
-                &octosense_app_policy::digest_dir(root)?,
-                &octosense_app_policy::RefuseAllSignatures,
+                &octosense_app_contract::digest_dir(root)?,
+                &octosense_app_contract::RefuseAllSignatures,
             )?;
         }
-        let policy = octosense_app_policy::policy::resolve(
+        let policy = octosense_app_contract::policy::resolve(
             &manifest,
-            &octosense_app_policy::HostLimits {
-                require_signature: false,
-                ..Default::default()
-            },
+            &octosense_app_contract::HostLimits::default().with_require_signature(false),
         )?;
-        let script = root.join(octosense_app_policy::SCRIPT_ENTRY).is_file();
+        let script = root.join(octosense_app_contract::SCRIPT_ENTRY).is_file();
         let entry = if script {
-            octosense_app_policy::SCRIPT_ENTRY
+            octosense_app_contract::SCRIPT_ENTRY
         } else {
             "page.card"
         };
@@ -292,7 +289,7 @@ mod tests {
             serde_json::to_vec(&manifest).unwrap(),
         )
         .unwrap();
-        manifest.integrity.bundle_blake3 = octosense_app_policy::digest_dir(&original).unwrap();
+        manifest.integrity.bundle_blake3 = octosense_app_contract::digest_dir(&original).unwrap();
         let publisher = hub::HubKey::generate();
         hub::sign_manifest(&publisher, &mut manifest, "demo-publisher").unwrap();
         std::fs::write(
@@ -382,7 +379,7 @@ mod tests {
             "Image{src: http_resource(\"{{assets}}/icon.png\")}",
         )
         .unwrap();
-        let rendered = octosense_app_policy::script_source(&package.root, "http://127.0.0.1:1234/")
+        let rendered = octosense_app_contract::script_source(&package.root, "http://127.0.0.1:1234/")
             .unwrap()
             .unwrap();
         assert_eq!(

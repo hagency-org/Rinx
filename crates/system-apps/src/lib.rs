@@ -1,5 +1,5 @@
 //! Build-owned catalogs. A downloaded manifest cannot register a native app.
-use octosense_app_policy::{AppManifest, HostLimits};
+use octosense_app_contract::{AppManifest, HostLimits};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -158,19 +158,16 @@ pub fn pack(root: &Path) -> Result<PackedCatalog, String> {
                     .into(),
             );
         }
-        let digest = octosense_app_policy::digest_dir(&bundle)?;
+        let digest = octosense_app_contract::digest_dir(&bundle)?;
         if !manifest.integrity.bundle_blake3.is_empty()
             && manifest.integrity.bundle_blake3 != digest
         {
             return Err("Stale bundle digest".into());
         }
         manifest.integrity.bundle_blake3 = digest;
-        octosense_app_policy::policy::resolve(
+        octosense_app_contract::policy::resolve(
             &manifest,
-            &HostLimits {
-                require_signature: false,
-                ..Default::default()
-            },
+            &HostLimits::default().with_require_signature(false),
         )?;
         file.bytes = serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?;
         match entry.native {
@@ -232,10 +229,10 @@ impl PackedApp {
         if fs::read(root.join("manifest.json")).map_err(|e| e.to_string())? != expected.bytes {
             return Err("Built-in manifest changed".into());
         }
-        octosense_app_policy::admit_digest(
+        octosense_app_contract::admit_digest(
             &self.manifest,
-            &octosense_app_policy::digest_dir(root)?,
-            &octosense_app_policy::RefuseAllSignatures,
+            &octosense_app_contract::digest_dir(root)?,
+            &octosense_app_contract::RefuseAllSignatures,
         )
     }
 }

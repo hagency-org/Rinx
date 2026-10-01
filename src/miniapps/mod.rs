@@ -44,6 +44,7 @@ pub async fn matrix_request(
 mod catalog_worker;
 mod library;
 mod package;
+mod sandbox;
 pub mod ui;
 pub use crate::host::octos::ContextProvider;
 pub use ui::{MiniAppsAction, MiniAppsPanelWidgetRefExt};

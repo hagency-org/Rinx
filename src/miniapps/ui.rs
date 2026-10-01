@@ -7,7 +7,7 @@ use super::{
 use makepad_widgets::splash_host::{splash_host_respond, take_splash_host_requests_for};
 use makepad_widgets::*;
 use octoscript_ui_l0::InstanceStore;
-use octosense_app_policy::AssetServer;
+use octosense_app_contract::AssetServer;
 use serde_json::{Value, json};
 use std::{
     collections::VecDeque,
@@ -384,8 +384,8 @@ impl MiniAppsPanel {
                     .set_cell(octoscript_ui_l0::CARD_STATE_KEY, &field, value);
             }
         }
-        let server = octosense_app_policy::AssetServer::start(&package.root)?;
-        octosense_app_policy::rewrite_assets(&mut self.data, server.origin());
+        let server = octosense_app_contract::AssetServer::start(&package.root)?;
+        octosense_app_contract::rewrite_assets(&mut self.data, server.origin());
         let account_dir: String = account.bytes().map(|b| format!("{b:02x}")).collect();
         // The local core's default read boundary is its data root. Allocate
         // an account/app child there and then narrow the session to that child.
@@ -393,7 +393,7 @@ impl MiniAppsPanel {
         // The isolate's own storage stays in Rinx's data dir; the assistant's
         // workspace for this instance is its kernel request context's.
         let root = crate::app_data_dir().join("miniapps").join(account_dir);
-        let mut settings = package.policy.isolate_settings(&root);
+        let mut settings = super::sandbox::IsolateSettings::for_app(&package.policy, &root);
         std::fs::create_dir_all(&settings.jail_root).map_err(|e| e.to_string())?;
         let wants_octos = package
             .manifest
@@ -408,16 +408,9 @@ impl MiniAppsPanel {
                 Err(reason) => self.octos_unavailable = Some(reason),
             }
         }
-        settings.hosts.push(server.allowlist_entry());
-        settings.allow_net = true;
-        if !package.script {
-            settings.capabilities.push("rinx.event".into());
-        }
-        if !settings.capabilities.iter().any(|s| s == "net") {
-            settings.capabilities.push("net".into());
-        }
+        settings.serve_bundle(server.allowlist_entry(), !package.script);
         let splash = self.view.splash(cx, ids!(card));
-        octosense_app_policy::splash_adapter::apply(&splash, cx, &settings);
+        super::sandbox::apply(&splash, cx, &settings);
         splash.set_host_tag(cx, Some(self.tag.clone()));
         self.assets = Some(server);
         self.lease = Some(lease);
@@ -442,7 +435,7 @@ impl MiniAppsPanel {
     fn render(&mut self, cx: &mut Cx) -> Result<(), String> {
         let package = self.package.as_ref().ok_or("No package")?;
         if package.script {
-            let source = octosense_app_policy::script_source(
+            let source = octosense_app_contract::script_source(
                 &package.root,
                 self.assets
                     .as_ref()
