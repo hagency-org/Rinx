@@ -218,7 +218,7 @@ impl AgentAccessPanel {
         let Some(client) = get_client() else { return };
         self.run(cx, async move {
             matrix_context::ensure_current(&client)?;
-            let room = if let Some(room) = client.get_dm_room(&botfather) {
+            let room = if let Some(room) = super::find_dm(&client, &botfather).await {
                 room
             } else {
                 super::create_bot_dm(&client, &botfather).await?

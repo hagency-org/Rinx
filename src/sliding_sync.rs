@@ -1415,7 +1415,7 @@ async fn matrix_worker_task(
                 }
                 let _create_dm_task = Handle::current().spawn(async move {
                     if !crate::matrix_context::is_current(&client) {return;}
-                    if let Some(room) = client.get_dm_room(&user_profile.user_id) {
+                    if let Some(room) = crate::agent_access::find_dm(&client, &user_profile.user_id).await {
                         log!("Found existing DM room: {}", room.room_id());
                         Cx::post_action(DirectMessageRoomAction::FoundExisting {
                             user_id: user_profile.user_id,
