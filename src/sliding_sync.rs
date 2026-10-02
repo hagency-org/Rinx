@@ -1253,6 +1253,22 @@ async fn matrix_worker_task(
                     log!("Sending request to join room {room_id}...");
                     let known_room = client.get_room(&room_id);
                     let was_invite = known_room.as_ref().is_some_and(|r| r.state() == RoomState::Invited);
+                    // Already joined, but the rooms list may never have been given the room
+                    // (search then offers "Join", which the SDK refuses). Add it and open it.
+                    if let Some(room) = known_room.as_ref().filter(|r| r.state() == RoomState::Joined) {
+                        if !ALL_JOINED_ROOMS.lock().unwrap().contains_key(&room_id) {
+                            warning!("Joined room {room_id} was missing from the rooms list; adding it.");
+                            let service = SYNC_SERVICE.lock().unwrap().as_ref().map(|s| s.room_list_service());
+                            if let Some(service) = service {
+                                let info = RoomListServiceRoomInfo::from_room(room.clone(), &current_user_id(), true).await;
+                                if let Err(e) = add_new_room(&info, &service).await {
+                                    error!("Failed to add joined room {room_id} to the rooms list: {e:?}");
+                                }
+                            }
+                        }
+                        Cx::post_action(JoinRoomResultAction::Joined { room_id });
+                        return;
+                    }
                     let result = match known_room.as_ref() {
                         Some(room) => room.join().await.map(|_| room.clone()),
                         None => client.join_room_by_id(&room_id).await,
