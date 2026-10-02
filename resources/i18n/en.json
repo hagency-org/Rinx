@@ -1180,5 +1180,11 @@
   "Remove from space": "Remove from space",
   "Service reachable: {path} ({status})": "Service reachable: {path} ({status})",
   "View pending approvals": "View pending approvals",
-  "Action could not be sent. Check your connection and try again.": "Action could not be sent. Check your connection and try again."
+  "Action could not be sent. Check your connection and try again.": "Action could not be sent. Check your connection and try again.",
+  "Name or @user:example.org": "Name or @user:example.org",
+  "People you know": "People you know",
+  "Searching for {0}…": "Searching for {0}…",
+  "Found {0}. Press Invite to send.": "Found {0}. Press Invite to send.",
+  "No one found for \"{0}\". Enter their full ID, like @name:server.": "No one found for \"{0}\". Enter their full ID, like @name:server.",
+  "{0} people match. Pick one above.": "{0} people match. Pick one above."
 }

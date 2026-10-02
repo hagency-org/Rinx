@@ -1180,5 +1180,11 @@
   "Remove from space": "从空间中移除",
   "Service reachable: {path} ({status})": "服务可连接：{path}（{status}）",
   "View pending approvals": "查看待审批请求",
-  "Action could not be sent. Check your connection and try again.": "操作未能发送。请检查网络连接后重试。"
+  "Action could not be sent. Check your connection and try again.": "操作未能发送。请检查网络连接后重试。",
+  "Name or @user:example.org": "名字或 @user:example.org",
+  "People you know": "你认识的人",
+  "Searching for {0}…": "正在搜索 {0}…",
+  "Found {0}. Press Invite to send.": "找到 {0}。点击“邀请”发送。",
+  "No one found for \"{0}\". Enter their full ID, like @name:server.": "没有找到“{0}”。请输入完整 ID，例如 @name:server。",
+  "{0} people match. Pick one above.": "有 {0} 人匹配，请在上方选择一位。"
 }
