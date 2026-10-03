@@ -53,8 +53,12 @@ script_mod! {
     }
 
     mod.widgets.LinkPreview = #(LinkPreview::register_widget(vm)) {
-        width: Fill, height: Fit,
+        width: Fill{max: 440}, height: Fit,
         flow: Down,
+
+        previews := View {
+            width: Fill height: Fit flow: Down
+        }
 
         collapsible_buttons := View {
             width: Fill, height: Fit,
@@ -126,82 +130,58 @@ script_mod! {
         }
 
         preview_template: RoundedView {
-            cursor: MouseCursor.Hand,
-            flow: Right,
-            spacing: 4.0,
-            width: Fill,
-            height: 96,
-            margin: Inset{ top: 7 }
-            padding: Inset{ top: 8, bottom: 8, left: 12, right: 12 },
-            spacing: 10
-            show_bg: true,
+            cursor: MouseCursor.Hand
+            width: Fill height: Fit flow: Down spacing: 10
+            margin: Inset{top: 8}
+            padding: 12
+            show_bg: true
             draw_bg +: {
-                color: (COLOR_BG_PREVIEW)
-                border_radius: 4.0
+                color: #xffffff
+                border_color: #xe3e6e8
+                border_size: 1.0
+                border_radius: 8.0
             }
-            align: Align{ y: 0.5 }
-
-            image_view := View {
-                visible: true,
-                width: Fit, height: 80,
-                flow: Down
-                image := TextOrImage {
-                    width: 120, height: Fill,
-                    align: Align{ y: 0.5 }
-                    image_view +: {
-                        height: Fill,
-                        flow: Down,
-                        align: Align{ x: 0.5, y: 0.5 }
-                        image +: { height: Fill }
-                    }
-                }
-            }
-
-            content_view := View {
-                width: Fill, height: Fill,
-                flow: Down,
-
-                inner_content_view := View {
-                    width: Fit, height: Fit,
-                    flow: Flow.Right{wrap: true},
-
-                    title_label := LinkLabel {
-                        width: Fit, height: Fit,
-                        flow: Flow.Right{wrap: true},
-                        draw_text +: {
-                            text_style: mod.widgets.LINK_PREVIEW_MESSAGE_TEXT_STYLE {
-                                font_size: 12.0,
-                            },
-                            color: (RBX_LINK),
-                            color_hover: (RBX_LINK_HOVER),
+            summary := View {
+                width: Fill height: Fit flow: Right spacing: 12
+                content_view := View {
+                    width: Fill height: Fit flow: Down spacing: 6
+                    inner_content_view := View {
+                        width: Fill height: Fit flow: Down
+                        title_label := Label {
+                            width: Fill height: Fit padding: 0
+                            flow: Flow.Right{wrap: true} max_lines: 2 text_overflow: Ellipsis
+                            draw_text +: {
+                                text_style: theme.font_bold {font_size: 14}
+                                color: #x202428
+                            }
                         }
                     }
-
-                    site_name_label := Label {
-                        width: Fit, height: Fit,
-                        flow: Flow.Right{wrap: true},
+                    description_label := Label {
+                        width: Fill height: Fit padding: 0
+                        flow: Flow.Right{wrap: true} max_lines: 3 text_overflow: Ellipsis
                         draw_text +: {
-                            text_style: mod.widgets.LINK_PREVIEW_MESSAGE_TEXT_STYLE {
-                                font_size: 12.0,
-                            },
-                            color: #666666,
+                            text_style: theme.font_regular {font_size: 11.5}
+                            color: #x626970
                         }
                     }
                 }
-
-
-                description_label := Label {
-                    width: Fill, height: Fit,
-                    flow: Flow.Right{wrap: true},
-                    padding: Inset{ left: 0.0 }
-                    max_lines: 2
-                    text_overflow: Ellipsis
-                    draw_text +: {
-                        text_style: mod.widgets.LINK_PREVIEW_MESSAGE_TEXT_STYLE {
-                            font_size: 11.0,
-                        },
-                        color: #666666,
+                image_view := View {
+                    visible: false width: 72 height: 72
+                    image := TextOrImage {
+                        width: Fill height: Fill
+                        image_view +: {
+                            height: Fill
+                            image +: {width: Fill height: Fill fit: ImageFit.CropToFill}
+                        }
                     }
+                }
+            }
+            footer := View {
+                width: Fill height: Fit flow: Down spacing: 8
+                SolidView {width: Fill height: 1 draw_bg.color: #xeeeeee}
+                site_name_label := Label {
+                    width: Fill height: Fit padding: 0 max_lines: 1 text_overflow: Ellipsis
+                    draw_text +: {text_style: theme.font_regular {font_size: 10} color: #x7b838b}
                 }
             }
         }
@@ -216,8 +196,6 @@ pub struct LinkPreview {
     preview_template: Option<LivePtr>,
     #[rust]
     children: Vec<ViewRef>,
-    #[layout]
-    layout: Layout,
     #[rust]
     is_expanded: bool,
     #[rust]
@@ -249,12 +227,12 @@ impl Widget for LinkPreview {
             }
         }
 
-        for view in self.children.iter() {
+        for (index, view) in self.children.iter().enumerate().filter(|(_, view)| view.visible()) {
             match event.hits(cx, view.area()) {
                 Hit::FingerHoverIn(_) | Hit::FingerDown(_) => {
                     let mut view = view.clone();
                     script_apply_eval!(cx, view, {
-                        draw_bg.color: mod.widgets.COLOR_BG_PREVIEW_HOVER
+                        draw_bg.color: #xf4f7f8
                     });
                 }
                 Hit::FingerHoverOut(_) => {
@@ -264,40 +242,33 @@ impl Widget for LinkPreview {
                     // return to normal bg color
                     reset_hover(cx, view);
                     if fe.is_over && fe.is_primary_hit() && fe.was_tap() {
-                        if let Some(html_link) = view.link_label(cx, ids!(content_view.title_label)).borrow() {
-                            if !html_link.url.is_empty() {
-                                cx.widget_action(
-                                    html_link.widget_uid(), 
-                                    HtmlLinkAction::Clicked {
-                                        url: html_link.url.clone(),
-                                        key_modifiers: fe.modifiers,
-                                    },
-                                );
-                            }
+                        if let Some(link) = self.last_populated_links.get(index) {
+                            cx.widget_action(
+                                view.widget_uid(),
+                                HtmlLinkAction::Clicked {
+                                    url: link.to_string(),
+                                    key_modifiers: fe.modifiers,
+                                },
+                            );
                         }
                     }
                 }
                 _ => {}
             }
-            view.handle_event(cx, event, scope);
         }
         self.view.handle_event(cx, event, scope);
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
-        // First, draw as many children as should be visible.
-        let num_visible = if self.is_expanded { self.children.len() } else { MAX_DEFAULT_VISIBLE_PREVIEWS };
-        for child in self.children.iter_mut().take(num_visible) {
-            let _ = child.draw(cx, scope);
-        }
-        // Then, draw the rest of the main view, e.g., the collapsible button.
-        let _ = self.view.draw_walk(cx, scope, walk);
-        DrawStep::done()
+        self.view.draw_walk(cx, scope, walk)
     }
 }
 
 impl LinkPreview {
     fn update_button_and_visibility(&mut self, cx: &mut Cx) {
+        for (index, child) in self.children.iter().enumerate() {
+            child.set_visible(cx, self.is_expanded || index < MAX_DEFAULT_VISIBLE_PREVIEWS);
+        }
         if self.num_hidden_links > 0 {
             self.view.view(cx, ids!(collapsible_buttons)).set_visible(cx, true);
             let expand_btn = self.view.button(cx, ids!(collapsible_buttons.expand_button));
@@ -316,6 +287,18 @@ impl LinkPreview {
             self.view.view(cx, ids!(collapsible_buttons)).set_visible(cx, false);
         }
     }
+
+    fn sync_children(&mut self, cx: &mut Cx) {
+        // Cards must belong to the view's layout and widget tree. Drawing them
+        // before the view left its area covering only the expand/collapse button.
+        if let Some(mut previews) = self.view.view(cx, ids!(previews)).borrow_mut() {
+            previews.children = self.children.iter().enumerate()
+                .map(|(index, child)| (LiveId::from_num(id!(preview).0, index as u64), WidgetRef::clone(child)))
+                .collect();
+            cx.widget_tree_mark_dirty(previews.widget_uid());
+            previews.redraw(cx);
+        }
+    }
 }
 
 impl LinkPreviewRef {
@@ -325,6 +308,7 @@ impl LinkPreviewRef {
     pub fn clear(&mut self, cx: &mut Cx) {
         if let Some(mut inner) = self.borrow_mut() {
             inner.children.clear();
+            inner.sync_children(cx);
             inner.last_populated_links.clear();
             inner.is_expanded = false;
             inner.num_hidden_links = 0;
@@ -347,20 +331,7 @@ impl LinkPreviewRef {
     where
         F: Fn(&mut Cx, &TextOrImageRef, Option<&ImageInfo>, MediaSource, &str, &mut MediaCache) -> bool,
     {
-        const SKIPPED_DOMAINS: &[&str] = &["matrix.to", "matrix.io"];
-
-        // Deduplicate links and filter out matrix or invalid links.
-        let mut accepted_links: Vec<url::Url> = Vec::new();
-        for link in links {
-            if link.host_str().is_some_and(|host|
-                SKIPPED_DOMAINS.iter().any(|skip| host.ends_with(skip))
-            ) {
-                continue;
-            }
-            if !accepted_links.contains(link) {
-                accepted_links.push(link.clone());
-            }
-        }
+        let accepted_links = previewable_links(links);
 
         let did_links_change = match self.borrow() {
             Some(inner) => inner.last_populated_links != accepted_links,
@@ -384,6 +355,7 @@ impl LinkPreviewRef {
                 inner.last_populated_links = accepted_links;
                 inner.is_expanded = false;
                 inner.num_hidden_links = num_links.saturating_sub(MAX_DEFAULT_VISIBLE_PREVIEWS);
+                inner.sync_children(cx);
                 inner.update_button_and_visibility(cx);
             }
         }
@@ -398,10 +370,29 @@ impl LinkPreviewRef {
     }
 }
 
+fn previewable_links(links: &[Url]) -> Vec<Url> {
+    let mut accepted = Vec::new();
+    for link in links {
+        if !matches!(link.scheme(), "http" | "https") || link.host_str().is_none()
+            || link.host_str().is_some_and(|host|
+                ["matrix.to", "matrix.io"].iter().any(|skip|
+                    host == *skip || host.strip_suffix(skip).is_some_and(|prefix| prefix.ends_with('.'))
+                )
+            )
+        {
+            continue;
+        }
+        if !accepted.contains(link) {
+            accepted.push(link.clone());
+        }
+    }
+    accepted
+}
+
 fn reset_hover(cx: &mut Cx, item: &ViewRef) {
     let mut item = item.clone();
     script_apply_eval!(cx, item, {
-        draw_bg.color: mod.widgets.COLOR_BG_PREVIEW
+        draw_bg.color: #xffffff
     });
 }
 
@@ -419,39 +410,42 @@ fn populate_preview_item<F>(
 where
     F: Fn(&mut Cx, &TextOrImageRef, Option<&ImageInfo>, MediaSource, &str, &mut MediaCache) -> bool,
 {
-    let title_link = view.link_label(cx, ids!(content_view.title_label));
-    // Always use the original link upon click (not the `og:url`).
-    if let Some(mut title_link) = title_link.borrow_mut() {
-        title_link.url = link.to_string();
-    }
+    let title_link = view.label(cx, ids!(title_label));
     let site_name_label = view.label(cx, ids!(site_name_label));
     let description_label = view.label(cx, ids!(description_label));
     let image_view = view.view(cx, ids!(image_view));
     let text_or_image = view.text_or_image(cx, ids!(image));
 
-    site_name_label.set_text(cx, "");
-    description_label.set_text(cx, "");
-
+    let host = link.host_str().unwrap_or_default();
+    let footer = view.view(cx, ids!(footer));
+    let description = |value: &str| utils::replace_linebreaks_separators(value, false).trim().to_owned();
     let data = match entry {
         LinkPreviewCacheEntry::LoadedLinkPreview(data) => data,
         LinkPreviewCacheEntry::Requested | LinkPreviewCacheEntry::Failed => {
-            title_link.set_text(cx, link.as_str());
+            title_link.set_text(cx, host);
+            description_label.set_text(cx, if matches!(entry, LinkPreviewCacheEntry::Requested) {
+                crate::i18n::tr("Loading preview…")
+            } else {
+                crate::i18n::tr("Open webpage")
+            });
+            description_label.set_visible(cx, true);
+            footer.set_visible(cx, false);
             image_view.set_visible(cx, false);
-            // We treat "Failed" as permanent, i.e., it's fully drawn.
             return matches!(entry, LinkPreviewCacheEntry::Failed);
         }
     };
 
-    title_link.set_text(cx, data.title.as_deref().unwrap_or(link.as_str()));
-    if let Some(site_name) = &data.site_name {
-        site_name_label.set_text(cx, site_name);
-    }
-    // The description label is 2 lines max with ellipsis wrap, so we
-    // ensure that hard link breaks are ignored by converting them to spaces.
-    if let Some(description) = &data.description {
-        let description = utils::replace_linebreaks_separators(description, false);
-        description_label.set_text(cx, &description);
-    }
+    let title = data.title.as_deref().map(description).filter(|s| !s.is_empty());
+    title_link.set_text(cx, title.as_deref().unwrap_or(host));
+    let body = data.description.as_deref().map(description).filter(|s| !s.is_empty());
+    description_label.set_text(cx, body.as_deref().unwrap_or(""));
+    description_label.set_visible(cx, body.is_some());
+    let site = data.site_name.as_deref().map(description).filter(|s| !s.is_empty());
+    site_name_label.set_text(cx, &match site {
+        Some(site) if !site.eq_ignore_ascii_case(host) => format!("{site} · {host}"),
+        _ => host.to_owned(),
+    });
+    footer.set_visible(cx, title.is_some() || body.is_some() || data.image.is_some());
 
     let Some(image) = &data.image else {
         image_view.set_visible(cx, false);
@@ -533,6 +527,14 @@ impl LinkPreviewCache {
         }
     }
 
+    /// Cache metadata that has already been fetched, without requesting it again.
+    pub fn insert(&mut self, url: &Url, data: LinkPreviewData) {
+        self.cache.insert(url.to_string(), Arc::new(Mutex::new(TimestampedCacheEntry {
+            entry: LinkPreviewCacheEntry::LoadedLinkPreview(data),
+            timestamp: Instant::now(),
+        })));
+    }
+
     /// Sets a new timeline update sender, e.g., for when the backend re-created this room's timeline.
     pub fn set_timeline_update_sender(
         &mut self,
@@ -602,7 +604,10 @@ fn insert_into_cache(
 ) {
     let new_entry = match data {
         Ok(data) => LinkPreviewCacheEntry::LoadedLinkPreview(data),
-        Err(_e) => LinkPreviewCacheEntry::Failed,
+        Err(e) => {
+            error!("Homeserver link preview failed: {e}");
+            LinkPreviewCacheEntry::Failed
+        }
     };
 
     if let Ok(mut timestamped_entry) = value_ref.lock() {
@@ -615,4 +620,35 @@ fn insert_into_cache(
         let _ = sender.send(TimelineUpdate::LinkPreviewFetched);
     }
     SignalToUI::set_ui_signal();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_urls_preserve_order_and_only_skip_actual_matrix_domains() {
+        let links: Vec<Url> = [
+            "https://example.org/article", "mailto:reader@example.org", "ftp://example.org/file",
+            "https://matrix.to/#/@reader:example.org", "https://sub.matrix.io/room",
+            "http://example.org/page", "https://example.org/article", "https://notmatrix.to/article",
+            "matrix:u/reader:example.org", "file:///tmp/article.html",
+        ].into_iter().map(|s| s.parse().unwrap()).collect();
+        assert_eq!(previewable_links(&links).iter().map(Url::as_str).collect::<Vec<_>>(), vec![
+            "https://example.org/article", "http://example.org/page", "https://notmatrix.to/article",
+        ]);
+    }
+
+    #[test]
+    fn homeserver_metadata_accepts_string_image_sizes_and_missing_fields() {
+        let data: LinkPreviewData = serde_json::from_value(serde_json::json!({
+            "og:title": "An article", "og:description": "中文 description",
+            "og:image": "mxc://example.org/image", "matrix:image:size": "1234",
+        })).unwrap();
+        assert_eq!(data.title.as_deref(), Some("An article"));
+        assert_eq!(data.description.as_deref(), Some("中文 description"));
+        assert_eq!(data.image_size.map(u64::from), Some(1234));
+        let empty: LinkPreviewData = serde_json::from_str("{}").unwrap();
+        assert!(empty.title.is_none() && empty.image.is_none());
+    }
 }

@@ -1186,5 +1186,11 @@
   "Searching for {0}…": "Searching for {0}…",
   "Found {0}. Press Invite to send.": "Found {0}. Press Invite to send.",
   "No one found for \"{0}\". Enter their full ID, like @name:server.": "No one found for \"{0}\". Enter their full ID, like @name:server.",
-  "{0} people match. Pick one above.": "{0} people match. Pick one above."
+  "{0} people match. Pick one above.": "{0} people match. Pick one above.",
+  "Forward": "Forward",
+  "Reopen link": "Reopen link",
+  "Opened link: {0}": "Opened link: {0}",
+  "In-app browsing is unavailable on this platform. Use Open in browser.": "In-app browsing is unavailable on this platform. Use Open in browser.",
+  "Loading preview…": "Loading preview…",
+  "Open webpage": "Open webpage"
 }

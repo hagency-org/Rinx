@@ -123,6 +123,14 @@ script_mod! {
         flow: Right,
         margin: Inset{top: 8, bottom: 2}
 
+        open_markdown_button := RobrixIconButton {
+            visible: false height: mod.widgets.SETTINGS_BUTTON_HEIGHT
+            padding: Inset{left: 12 right: 12} margin: Inset{right: 8}
+            draw_icon.svg: crate_resource("self://resources/icons/eye_open.svg")
+            icon_walk: Walk{width: 16 height: 16}
+            text: #(crate::i18n::tr("Open")) i18n_text: "Open"
+        }
+
         download_button := RobrixIconButton {
             height: mod.widgets.SETTINGS_BUTTON_HEIGHT,
             padding: Inset{left: 12, right: 12}
@@ -334,7 +342,7 @@ script_mod! {
             width: Fill,
             height: Fit
             flow: Right,
-            padding: Inset{top: 0, bottom: 10, left: 10, right: 10},
+            padding: Inset{top: 0, bottom: 10, left: 24, right: 24},
 
             profile := View {
                 align: Align{x: 0.5, y: 0.0} // centered horizontally, top aligned
@@ -354,7 +362,7 @@ script_mod! {
             }
 
             content := View {
-                width: Fill,
+                width: Fill{max: 760},
                 height: Fit
                 flow: Down,
                 padding: 0.0
@@ -539,7 +547,7 @@ script_mod! {
             width: Fill,
             height: Fit
             flow: Right,
-            padding: Inset{ top: 0, bottom: 2.5, left: 10.0, right: 10.0 },
+            padding: Inset{ top: 0, bottom: 2.5, left: 24.0, right: 24.0 },
             profile := View {
                 align: Align{x: 0.5, y: 0.0} // centered horizontally, top aligned
                 width: 65.0,
@@ -552,7 +560,7 @@ script_mod! {
                 tsp_sign_indicator := TspSignIndicator { }
             }
             content := View {
-                width: Fill,
+                width: Fill{max: 770},
                 height: Fit,
                 flow: Down,
                 padding: Inset{ left: 10.0 }
@@ -818,7 +826,7 @@ script_mod! {
         }
     }
 
-    mod.widgets.Timeline = View {
+    mod.widgets.Timeline = #(ChatTimeline::register_widget(vm)) {
         width: Fill,
         height: Fill,
         align: Align{x: 0.5, y: 0.0} // center horizontally, align to top vertically
@@ -999,6 +1007,37 @@ script_mod! {
             }
             */
         }
+    }
+}
+
+/// A mouse press captured by a message belongs to selection (or its link), while
+/// touch gestures must still be allowed to pan the timeline over child widgets.
+#[derive(Script, ScriptHook, Widget)]
+pub struct ChatTimeline {
+    #[source] source: ScriptObjectRef,
+    #[deref] view: View,
+}
+
+impl Widget for ChatTimeline {
+    fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        let capture_overload = match event {
+            Event::MouseDown(_) => Some(false),
+            Event::TouchUpdate(update) if update.touches.iter().any(|t| t.state == TouchState::Start) => Some(true),
+            _ => None,
+        };
+        if let Some(capture_overload) = capture_overload {
+            let mut list = self.view.portal_list(cx, ids!(list));
+            let at_end = list.is_at_end();
+            script_apply_eval!(cx, list, { capture_overload: #(capture_overload) });
+            // Applying PortalList properties re-arms auto-tail; a press while
+            // reading older messages must keep the viewport at that position.
+            list.set_tail_range(at_end);
+        }
+        self.view.handle_event(cx, event, scope);
+    }
+
+    fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        self.view.draw_walk(cx, scope, walk)
     }
 }
 
@@ -2718,7 +2757,7 @@ impl RoomScreen {
                 link_was_handled |= handle_matrix_link(matrix_uri.id(), matrix_uri.via());
             }
 
-            if !link_was_handled {
+            if !link_was_handled && !crate::shared::web_browser::open_chat_link(cx, &url) {
                 log!("Opening URL \"{}\"", url);
                 if let Err(e) = robius_open::Uri::new(&url).open() {
                     error!("Failed to open URL {:?}. Error: {:?}", url, e);
@@ -3236,6 +3275,9 @@ impl RoomScreen {
 
                 MessageAction::DownloadAttachment(info) => {
                     self.begin_media_transfer(cx, portal_list, info, TransferKind::Download, start_attachment_download);
+                }
+                MessageAction::OpenMarkdownAttachment(info) => {
+                    self.begin_media_transfer(cx, portal_list, info, TransferKind::Preview, crate::shared::attachment_download::start_markdown_preview);
                 }
                 MessageAction::ShareAttachment(info) => {
                     self.begin_media_transfer(cx, portal_list, info, TransferKind::Share, start_attachment_share);
@@ -5191,7 +5233,9 @@ fn populate_message_view(
                         media_source: file_content.source.clone(),
                         filename: file_content.filename().to_owned(),
                         size: file_content.info.as_ref().and_then(|i| i.size).map(u64::from),
-                        kind: DownloadKind::File,
+                        kind: if crate::shared::attachment_download::is_markdown_attachment(file_content.filename(), file_content.info.as_ref().and_then(|info| info.mimetype.as_deref())) {
+                            DownloadKind::Markdown
+                        } else { DownloadKind::File },
                     });
                     let template = if mobile {
                         if event_tl_item.is_own() { id!(MobileOwnMessage) } else { id!(MobileMessage) }
@@ -6877,6 +6921,8 @@ pub enum MessageAction {
 
     /// The user clicked the "Download" button on a media/file message.
     DownloadAttachment(DownloadableAttachment),
+    /// The user opened a Markdown attachment in the shared reader.
+    OpenMarkdownAttachment(DownloadableAttachment),
     /// The user clicked the "Share" button on a media/file message.
     ShareAttachment(DownloadableAttachment),
     /// User clicked the cancel × next to the in-progress spinner.
@@ -7177,6 +7223,9 @@ impl Widget for Message {
 
             // Handle clicks on the media-related buttons (download, share, cancel) beneath media messages.
             if let Some(info) = self.download_info.as_ref() {
+                if info.kind == DownloadKind::Markdown && self.view.button(cx, ids!(content.download_section.open_markdown_button)).clicked(actions) {
+                    cx.widget_action(room_screen_widget_uid, MessageAction::OpenMarkdownAttachment(info.clone()));
+                }
                 if self.view.button(cx, ids!(content.download_section.download_button)).clicked(actions) {
                     cx.widget_action(
                         room_screen_widget_uid,
@@ -7218,7 +7267,8 @@ impl Widget for Message {
             }
         }
         if self.mobile_bubble {
-            let max_width = (cx.turtle().rect().size.x - 100.0).max(80.0);
+            let available = cx.turtle().rect().size.x;
+            let max_width = (available - 100.0).min(available * 0.72).clamp(44.0, 640.0);
             let plaintext = self.view.view(cx, ids!(content.message.plaintext_view));
             let label = self.view.label(cx, ids!(content.message.plaintext_view.pt_label));
             let text = label.text();
@@ -7363,6 +7413,8 @@ impl Message {
         let section_visible = self.download_info.is_some();
         self.view.view(cx, ids!(content.download_section)).set_visible(cx, section_visible);
         if section_visible {
+            self.view.button(cx, ids!(content.download_section.open_markdown_button)).set_visible(cx,
+                matches!(download_state, DownloadDisplayState::Idle) && self.download_info.as_ref().is_some_and(|info| info.kind == DownloadKind::Markdown));
             let download_button  = self.view.button(cx, ids!(content.download_section.download_button));
             let share_button     = self.view.button(cx, ids!(content.download_section.share_button));
             let downloading_view = self.view.view(cx, ids!(content.download_section.downloading_view));
@@ -7379,6 +7431,7 @@ impl Message {
                 success_button.set_text(cx, match kind {
                     TransferKind::Download => crate::i18n::tr("Downloaded"),
                     TransferKind::Share => "Shared",
+                    TransferKind::Preview => crate::i18n::tr("Open"),
                 });
             }
             // Only reset hover for the button(s) just now becoming visible.

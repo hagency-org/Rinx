@@ -705,6 +705,9 @@ pub struct ArticlePanel {
     replacing_image: bool,
     #[rust]
     reader_only: bool,
+    /// A read-only panel embedded in the shared web/document tab window.
+    #[live]
+    tabbed_reader: bool,
     #[rust]
     reader_assets: ReaderAssets,
     #[rust] preview_images: PreviewImages,
@@ -1824,6 +1827,7 @@ impl ArticlePanel {
             self.load_write_source(cx);
         }
         self.page = page;
+        self.view(cx, ids!(header)).set_visible(cx, !self.tabbed_reader);
         self.native_preview_key.clear();
         self.reader_select_all=false;
         if matches!(page, Page::Edit | Page::Write | Page::Preview | Page::Reader) { self.ensure_preview_images(); }
@@ -2694,12 +2698,23 @@ impl Widget for ArticlePanel {
             for action in actions {
                 if matches!(self.page, Page::Edit | Page::Preview | Page::Reader) {
                     if let HtmlLinkAction::Clicked { url, .. } = action.as_widget_action().cast() {
+                        {
+                            // Multiple readers/editor panels may coexist. Only
+                            // follow links emitted by this panel's own widgets.
+                            let mut uid = action.as_widget_action().map(|a| a.widget_uid);
+                            while uid.is_some_and(|uid| uid != self.widget_uid()) {
+                                uid = uid.and_then(|uid| cx.widget_tree().parent_of(uid));
+                            }
+                            if uid.is_none() { continue; }
+                        }
                         if let Some(anchor)=url.strip_prefix('#') {
                             self.navigate_anchor(cx,anchor);
                         } else if url.is_empty() {
                             self.navigate_anchor(cx,"");
                         } else if article_core::render::valid_link(&url) && matches!(url::Url::parse(&url).ok().as_ref().map(url::Url::scheme),Some("http"|"https"|"mailto")) {
-                            crate::utils::open_url(&url);
+                            if !self.tabbed_reader || !crate::shared::web_browser::open_chat_link(cx, &url) {
+                                crate::utils::open_url(&url);
+                            }
                         } else if article_core::render::valid_link(&url) {
                             if !self.reader_only {
                                 if let Some(grant)=self.grant.as_ref() {
@@ -3960,6 +3975,37 @@ impl Widget for ArticlePanel {
 }
 use article_core::assets::crop_cover;
 impl ArticlePanelRef {
+    /// Opens a downloaded Markdown document using the existing native reader.
+    pub fn read_markdown(&self, cx: &mut Cx, title: &str, source: &str) -> Result<(), String> {
+        let document = Document::from_markdown(title, source)?;
+        self.action(cx, ModalRef::default(), &ArticleAction::Open);
+        let Some(mut panel) = self.borrow_mut() else { return Err("Article reader is unavailable".into()) };
+        panel.reader_only = true;
+        panel.grant = current_user_id().map(Grant::reader);
+        panel.doc = document;
+        panel.show(cx, Page::Reader);
+        Ok(())
+    }
+
+    pub fn reader_title(&self) -> String {
+        self.borrow().map(|panel| panel.doc.title.clone()).unwrap_or_default()
+    }
+
+    /// Hidden tabs receive their asynchronous document/image results, never
+    /// another tab's pointer, keyboard, or link actions.
+    pub fn handle_background_event(&self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        if let Event::Actions(actions) = event {
+            let results: ActionsBuf = actions.iter()
+                .filter_map(|action| action.downcast_ref::<ResultAction>().cloned())
+                .map(|result| Box::new(result) as Action).collect();
+            if !results.is_empty() {
+                if let Some(mut panel) = self.borrow_mut() {
+                    panel.handle_event(cx, &Event::Actions(results), scope);
+                }
+            }
+        }
+    }
+
     pub fn action(&self, cx: &mut Cx, modal: ModalRef, action: &ArticleAction) {
         let Some(mut panel) = self.borrow_mut() else {
             return;

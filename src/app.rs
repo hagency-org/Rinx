@@ -27,6 +27,8 @@ use crate::{
     }
 };
 use crate::shared::file_upload_modal::{FileUploadModalWidgetRefExt, FileUploadModalAction};
+use crate::shared::web_browser::{WebBrowserAction, WebBrowserWidgetRefExt};
+use crate::shared::web_browser_window::WebBrowserWindowHostWidgetRefExt;
 #[cfg(feature = "agent_chat")]
 use crate::agent_chat::ops::ui::{AgentOpsAction, AgentOpsPanelWidgetRefExt};
 use crate::moments::ui::{MomentsAction, MomentsPanelWidgetRefExt};
@@ -67,6 +69,7 @@ mod embedded_content {
                 image_viewer_modal := Modal {
                     content := ImageViewer {}
                 }
+                web_browser_modal := Modal {can_dismiss: false content := WebBrowser {}}
                 
                 // The popup that lets the user select users to mention, rooms to link,
                 // or a slash command to run (via kbd triggers like '@', '#', '/').
@@ -180,6 +183,7 @@ script_mod! {
             moments_window_host := MomentsWindowHost {}
             // Likewise the article editor's window.
             article_window_host := ArticleWindowHost {}
+            web_browser_window_host := WebBrowserWindowHost {}
 
             main_window := Window {
                 window.inner_size: vec2(1280, 800)
@@ -333,6 +337,21 @@ impl MatchEvent for App {
         }
 
         for action in actions {
+            if let Some(action) = action.downcast_ref::<WebBrowserAction>() {
+                if !action.allowed() { continue; }
+                let modal = self.ui.modal(cx, ids!(web_browser_modal));
+                if matches!(action, WebBrowserAction::Close) {
+                    self.close_web_browser(cx);
+                    self.close_hosted_window(cx, HostedWindow::WebBrowser, true);
+                } else if !self.embedded && cfg!(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos")))) {
+                    self.ui.web_browser_window_host(cx, ids!(web_browser_window_host)).action(cx, action);
+                } else if let Some(panel) = self.hosted_window(cx, HostedWindow::WebBrowser) {
+                    panel.as_web_browser().action(cx, ModalRef::default(), action);
+                } else {
+                    self.ui.web_browser(cx, ids!(web_browser_modal.content)).action(cx, modal, action);
+                }
+                continue;
+            }
             // Opening a hidden conversation is explicit on both mobile and desktop.
             // Mobile selection does not emit the desktop RoomFocused action.
             if let RoomsListAction::Selected(room) = action.as_widget_action().cast() {
@@ -379,6 +398,13 @@ impl MatchEvent for App {
                 self.app_state.logged_in = true;
                 self.update_login_visibility(cx);
                 self.ui.redraw(cx);
+                if let Some(account) = current_user_id() {
+                    match crate::shared::web_browser_session::ReaderSession::load(&account) {
+                        Ok(session) if !session.tabs.is_empty() => cx.action(WebBrowserAction::Restore { session, account: Some(account) }),
+                        Ok(_) => {},
+                        Err(error) => error!("Could not restore reader tabs: {error}"),
+                    }
+                }
                 continue;
             }
 
@@ -461,6 +487,10 @@ impl MatchEvent for App {
             // On desktop, the article editor (and reader) opens in its own window;
             // on mobile, in a full-screen modal.
             if let Some(action) = action.downcast_ref::<ArticleAction>() {
+                if let ArticleAction::Read { room, event } = action {
+                    cx.action(WebBrowserAction::ReadArticle { room: room.clone(), event: event.clone() });
+                    continue;
+                }
                 let modal = self.ui.modal(cx, ids!(article_app_modal));
                 let window_host = self.article_window_host(cx);
                 if matches!(action, ArticleAction::Close) {
@@ -870,7 +900,22 @@ impl MatchEvent for App {
 }
 
 impl App {
+    fn preserve_reader_session(&self, cx: &mut Cx) {
+        self.ui.web_browser_window_host(cx, ids!(web_browser_window_host)).browser(cx).prepare_shutdown();
+        self.ui.web_browser(cx, ids!(web_browser_modal.content)).prepare_shutdown();
+        if let Some((_, panel)) = self.hosted_windows.iter().find(|(kind, _)| *kind == HostedWindow::WebBrowser) {
+            panel.as_web_browser().prepare_shutdown();
+        }
+    }
+
+    fn close_web_browser(&self, cx: &mut Cx) {
+        self.ui.web_browser_window_host(cx, ids!(web_browser_window_host)).close(cx);
+        let modal = self.ui.modal(cx, ids!(web_browser_modal));
+        self.ui.web_browser(cx, ids!(web_browser_modal.content)).action(cx, modal, &WebBrowserAction::Close);
+    }
+
     fn clear_session_ui(&mut self, cx: &mut Cx) {
+        self.close_web_browser(cx);
         #[cfg(feature = "agent_chat")]
         {
             let modal = self.ui.modal(cx, ids!(approval_inbox_modal));
@@ -882,7 +927,7 @@ impl App {
         let modal = self.ui.modal(cx, ids!(space_management_modal));
         self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);
         crate::assistant::set_current_room(None);
-        for window in [HostedWindow::Moments, HostedWindow::Article] {
+        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
             self.close_hosted_window(cx, window, true);
         }
         let modal = self.ui.modal(cx, ids!(moments_modal));
@@ -1033,6 +1078,11 @@ impl AppMain for App {
                 if modal.is_open() {event.back_pressed(); self.ui.agent_access_panel(cx, ids!(agent_access_modal.content)).action(cx, modal, &AgentAccessAction::Close, &self.app_state.agent_access);return;}
                 let modal = self.ui.modal(cx, ids!(space_management_modal));
                 if modal.is_open() {event.back_pressed(); self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);return;}
+                if self.ui.modal(cx, ids!(web_browser_modal)).is_open() {
+                    event.back_pressed();
+                    self.close_web_browser(cx);
+                    return;
+                }
             }
         }
         // A running mini app owns Back before the room/navigation widgets
@@ -1088,6 +1138,7 @@ impl AppMain for App {
 enum HostedWindow {
     Moments,
     Article,
+    WebBrowser,
 }
 
 impl HostedWindow {
@@ -1095,6 +1146,7 @@ impl HostedWindow {
         match self {
             Self::Moments => live_id!(moments),
             Self::Article => live_id!(article),
+            Self::WebBrowser => live_id!(web_browser),
         }
     }
 }
@@ -1131,12 +1183,18 @@ impl App {
                         use mod.widgets.*
                         ArticlePanel { padding: Inset{top: 0 bottom: 0} }
                     }),
+                    HostedWindow::WebBrowser => script_eval!(vm, {
+                        use mod.prelude.widgets.*
+                        use mod.widgets.*
+                        WebBrowser { padding: Inset{top: 0 bottom: 0} }
+                    }),
                 };
                 WidgetRef::script_from_value(vm, template)
             });
             let title = crate::i18n::tr(match window {
                 HostedWindow::Moments => "Moments",
                 HostedWindow::Article => "Article editor",
+                HostedWindow::WebBrowser => "Website",
             });
             crate::module::open_window(window.key(), title, panel.clone());
             self.hosted_windows.push((window, panel.clone()));
@@ -1158,6 +1216,7 @@ impl App {
                 panel.as_moments_panel().action(cx, None, &MomentsAction::Close);
             }
             HostedWindow::Article => panel.as_article_panel().action(cx, ModalRef::default(), &ArticleAction::Close),
+            HostedWindow::WebBrowser => panel.as_web_browser().action(cx, ModalRef::default(), &WebBrowserAction::Close),
         }
         #[cfg(feature = "octosense-module")]
         if close_host_window {
@@ -1169,7 +1228,7 @@ impl App {
     fn handle_closed_hosted_windows(&mut self, cx: &mut Cx) {
         #[cfg(feature = "octosense-module")]
         for key in crate::module::take_closed_windows() {
-            for window in [HostedWindow::Moments, HostedWindow::Article] {
+            for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
                 if window.key() == key {
                     self.close_hosted_window(cx, window, false);
                 }
@@ -1212,7 +1271,9 @@ impl App {
     pub fn close_embedded(&mut self, cx: &mut Cx) {
         if self.lifecycle.shutdown_started { return; }
         self.lifecycle.shutdown_started = true;
-        for window in [HostedWindow::Moments, HostedWindow::Article] {
+        self.preserve_reader_session(cx);
+        self.close_web_browser(cx);
+        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
             self.close_hosted_window(cx, window, true);
         }
         self.persist_runtime_state(cx, "module close");
@@ -1334,18 +1395,22 @@ impl App {
             }
             Event::WindowCloseRequested(e)
                 if self.ui.window(cx, ids!(main_window)).window_id() == Some(e.window_id) => {
+                    self.preserve_reader_session(cx);
                     log!("Main window close requested; persisting runtime state.");
                     self.persist_runtime_state(cx, "main window close request");
                     // The app only quits once its last window closes,
-                    // so take the Moments and article windows down with the main one.
+                    // so close its secondary windows with the main one.
                     self.moments_window_host(cx).close(cx);
                     self.article_window_host(cx).close(cx);
+                    self.close_web_browser(cx);
                 }
             // Not every close goes through a close request first, so also catch the close itself.
             Event::WindowClosed(e)
                 if self.ui.window(cx, ids!(main_window)).window_id() == Some(e.window_id) => {
+                    self.preserve_reader_session(cx);
                     self.moments_window_host(cx).close(cx);
                     self.article_window_host(cx).close(cx);
+                    self.close_web_browser(cx);
                 }
             Event::Foreground => {
                 if !self.lifecycle.is_foreground {
@@ -1444,6 +1509,9 @@ impl App {
 
     fn update_login_visibility(&self, cx: &mut Cx) {
         let show_login = !self.app_state.logged_in;
+        if show_login {
+            self.close_web_browser(cx);
+        }
         if !show_login {
             self.ui
                 .modal(cx, ids!(login_screen_view.login_screen.login_status_modal))
@@ -1598,6 +1666,7 @@ mod session_state_tests {
         app.hosted_windows = vec![
             (HostedWindow::Moments, WidgetRef::default()),
             (HostedWindow::Article, WidgetRef::default()),
+            (HostedWindow::WebBrowser, WidgetRef::default()),
         ];
         app.app_state.logged_in = true;
         app.app_state.app_prefs.send_on_enter = false;
@@ -1940,5 +2009,32 @@ mod back_navigation_tests {
         assert!(back(&mut cx, &mut app), "Back must close the open modal");
         assert!(!modal.is_open());
         assert!(!back(&mut cx, &mut app), "With the modal closed, Back goes to the host");
+    }
+
+    #[test]
+    fn shared_article_is_routed_to_the_tabbed_reader() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        let room = ruma::room_id!("!article:example.org").to_owned();
+        let event = ruma::event_id!("$article").to_owned();
+        let actions: ActionsBuf = vec![Box::new(ArticleAction::Read { room: room.clone(), event: event.clone() })];
+        let generated = cx.capture_actions(|cx| app.handle_actions(cx, &actions));
+        assert!(generated.iter().any(|action| matches!(action.downcast_ref::<WebBrowserAction>(),
+            Some(WebBrowserAction::ReadArticle { room: actual_room, event: actual_event }) if actual_room == &room && actual_event == &event)));
+        assert!(!app.ui.modal(&mut cx, ids!(article_app_modal)).is_open());
+    }
+
+    #[test]
+    fn back_closes_web_reader_before_navigating_the_chat() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        let modal = app.ui.modal(&mut cx, ids!(web_browser_modal));
+        let browser = app.ui.web_browser(&mut cx, ids!(web_browser_modal.content));
+        browser.action(&mut cx, modal.clone(), &WebBrowserAction::Open("https://example.org".parse().unwrap()));
+        assert!(modal.is_open());
+        assert!(back(&mut cx, &mut app));
+        assert!(!modal.is_open());
+        assert!(browser.browser_id().is_none());
+        assert!(!back(&mut cx, &mut app));
     }
 }

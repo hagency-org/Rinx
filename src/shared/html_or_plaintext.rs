@@ -792,14 +792,35 @@ pub struct HtmlOrPlaintext {
     #[deref] view: View,
     /// Only full chat bodies opt in; previews remain non-interactive labels.
     #[live] selectable: bool,
-    #[rust] mouse_selection: Option<(DVec2, usize, bool)>,
+    #[rust] mouse_selection: Option<MessageSelection>,
+}
+
+struct MessageSelection {
+    origin: DVec2,
+    anchor: usize,
+    cursor: usize,
+    dragging: bool,
+    whole_message: bool,
 }
 
 impl Widget for HtmlOrPlaintext {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         let claim_before = event.pointer_claimed_area();
+        if let Event::MouseUp(e) = event {
+            if e.button.is_primary() {
+                self.update_mouse_selection(cx, e.abs);
+            }
+        }
+        // One selection controller handles movement, including drags that began
+        // over an inline link. Let children receive events, but don't also let
+        // TextFlow move its cursor (or collapse a double-click selection).
+        let selecting = self.selectable && self.mouse_selection.is_some()
+            && matches!(event, Event::MouseMove(_));
+        if selecting {
+            self.with_flow(cx, |flow, _| flow.selectable = false);
+        }
         if matches!(event, Event::MouseUp(_))
-            && self.mouse_selection.is_some_and(|(_, _, dragging)| dragging)
+            && self.mouse_selection.as_ref().is_some_and(|s| s.dragging || s.whole_message)
         {
             let mut actions = cx.capture_actions(|cx| self.view.handle_event(cx, event, scope));
             // A short drag can still satisfy HtmlLink::was_tap(). Selection owns
@@ -812,6 +833,9 @@ impl Widget for HtmlOrPlaintext {
         } else {
             self.view.handle_event(cx, event, scope);
         }
+        if selecting {
+            self.with_flow(cx, |flow, _| flow.selectable = true);
+        }
         if !self.selectable { return; }
 
         // Html's inline links receive events before TextFlow. Remember the text
@@ -820,25 +844,34 @@ impl Widget for HtmlOrPlaintext {
         match event {
             Event::MouseDown(e) if e.button.is_primary() && claim_before.is_empty()
                 && self.area().clipped_rect(cx).contains(e.abs) => {
+                // Reuse the captured child's native tap count, including links.
+                let whole_message = matches!(event.hits(cx, event.pointer_claimed_area()),
+                    Hit::FingerDown(fe) if fe.tap_count >= 2);
                 self.mouse_selection = self.with_flow(cx, |flow, cx| {
-                    flow.selection_point_to_char_index(cx, e.abs).map(|index| (e.abs, index, false))
+                    let index = flow.selection_point_to_char_index(cx, e.abs)?;
+                    cx.set_key_focus(flow.area());
+                    if whole_message {
+                        flow.clear_selection();
+                        flow.select_all();
+                    } else {
+                        flow.set_selection(index, index);
+                    }
+                    flow.redraw(cx);
+                    Some(MessageSelection {
+                        origin: e.abs, anchor: index, cursor: index,
+                        dragging: false, whole_message,
+                    })
                 }).flatten();
             }
             Event::MouseMove(e) => {
-                if let Some((start, anchor, dragging)) = self.mouse_selection {
-                    if dragging || (e.abs - start).length() >= 4.0 {
-                        self.mouse_selection = Some((start, anchor, true));
-                        self.with_flow(cx, |flow, cx| {
-                            if let Some(cursor) = flow.selection_point_to_char_index(cx, e.abs) {
-                                flow.set_selection(anchor, cursor);
-                                cx.set_key_focus(flow.area());
-                                flow.redraw(cx);
-                            }
-                        });
-                    }
+                if self.mouse_selection.is_some() {
+                    cx.set_cursor(MouseCursor::Text);
+                    self.update_mouse_selection(cx, e.abs);
                 }
             }
-            Event::MouseUp(_) => self.mouse_selection = None,
+            Event::MouseUp(e) if e.button.is_primary() => {
+                self.mouse_selection = None;
+            }
             Event::KeyFocusLost(e) => {
                 if self.with_flow(cx, |flow, _| flow.area() == e.prev).unwrap_or(false) {
                     self.mouse_selection = None;
@@ -866,9 +899,34 @@ impl Widget for HtmlOrPlaintext {
 }
 
 impl HtmlOrPlaintext {
+    fn update_mouse_selection(&mut self, cx: &mut Cx, position: DVec2) {
+        let Some(mut selection) = self.mouse_selection.take() else { return };
+        let moved = (position - selection.origin).length() >= 4.0;
+        // Preserve a whole-message selection through normal double-click jitter.
+        // A deliberate drag starts a new range at the clicked character.
+        if selection.dragging || moved || !selection.whole_message {
+            self.with_flow(cx, |flow, cx| {
+                if let Some(cursor) = flow.selection_point_to_char_index(cx, position) {
+                    selection.dragging |= moved || cursor != selection.anchor;
+                    if cursor != selection.cursor || (selection.whole_message && moved) {
+                        flow.set_selection(selection.anchor, cursor);
+                        selection.cursor = cursor;
+                        selection.whole_message = false;
+                        flow.redraw(cx);
+                    }
+                }
+            });
+        }
+        self.mouse_selection = Some(selection);
+    }
+
     /// Sets the plaintext content and makes it visible, hiding the rich HTML content.
     pub fn show_plaintext<T: AsRef<str>>(&mut self, cx: &mut Cx, text: T) {
-        if self.view(cx, ids!(html_view)).visible() { self.clear_selection(cx); }
+        if self.view(cx, ids!(html_view)).visible()
+            || self.label(cx, ids!(plaintext_view.pt_label)).text() != text.as_ref()
+        {
+            self.clear_selection(cx);
+        }
         self.view(cx, ids!(html_view)).set_visible(cx, false);
         self.view(cx, ids!(plaintext_view)).set_visible(cx, true);
         self.label(cx, ids!(plaintext_view.pt_label)).set_text(cx, text.as_ref());
@@ -879,11 +937,14 @@ impl HtmlOrPlaintext {
 
     /// Sets the HTML content, making the HTML visible and the plaintext invisible.
     pub fn show_html<T: AsRef<str>>(&mut self, cx: &mut Cx, html_body: T) {
-        if self.view(cx, ids!(plaintext_view)).visible() { self.clear_selection(cx); }
+        if self.view(cx, ids!(plaintext_view)).visible()
+            || self.html(cx, ids!(html_view.html)).text() != html_body.as_ref()
+        {
+            self.clear_selection(cx);
+        }
         let mut html = self.html(cx, ids!(html_view.html));
         if let Some(mut inner) = html.borrow_mut() {
             inner.text_flow.selectable = self.selectable;
-            if inner.text() != html_body.as_ref() { inner.text_flow.clear_selection(); }
         }
         html.set_text(cx, html_body.as_ref());
         self.view(cx, ids!(html_view)).set_visible(cx, true);

@@ -1186,5 +1186,11 @@
   "Searching for {0}…": "正在搜索 {0}…",
   "Found {0}. Press Invite to send.": "找到 {0}。点击“邀请”发送。",
   "No one found for \"{0}\". Enter their full ID, like @name:server.": "没有找到“{0}”。请输入完整 ID，例如 @name:server。",
-  "{0} people match. Pick one above.": "有 {0} 人匹配，请在上方选择一位。"
+  "{0} people match. Pick one above.": "有 {0} 人匹配，请在上方选择一位。",
+  "Forward": "前进",
+  "Reopen link": "重新打开链接",
+  "Opened link: {0}": "已打开的链接：{0}",
+  "In-app browsing is unavailable on this platform. Use Open in browser.": "此平台暂不支持应用内浏览，请点击“在浏览器中打开”。",
+  "Loading preview…": "正在加载预览…",
+  "Open webpage": "打开网页"
 }
