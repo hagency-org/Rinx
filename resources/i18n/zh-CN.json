@@ -342,6 +342,8 @@
   "Messages": "消息",
   "Messages forwarded.": "消息已转发。",
   "Mini app sent": "小应用已发送",
+  "Mini app": "小应用",
+  "Blog": "博客",
   "Mini apps need an HTTP or HTTPS web address.": "小应用需要 HTTP 或 HTTPS 网页地址。",
   "Missing mini app": "小应用不存在",
   "Moment": "动态",

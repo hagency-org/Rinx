@@ -4,7 +4,7 @@ use makepad_widgets::{text::selection::Cursor, *};
 use matrix_sdk::encryption::{identities::Device, VerificationState};
 use url::Url;
 
-use crate::{app::ConfirmDeleteAction, avatar_cache::{self}, logout::logout_confirm_modal::{LogoutAction, LogoutConfirmModalAction}, profile::user_profile::UserProfile, settings::PopulateMode, shared::{avatar::{AvatarState, AvatarWidgetExt}, confirmation_modal::ConfirmationModalContent, file_upload_modal::{FileUploadMetadata, PendingUpload, handle_picked_file, handle_picker_launch_errors}, popup_list::{PopupKind, enqueue_popup_notification}, styles::*}, sliding_sync::{get_client, submit_async_request, AccountDataAction, MatrixRequest}, utils, verification::VerificationStateAction};
+use crate::{app::ConfirmDeleteAction, avatar_cache::{self}, logout::logout_confirm_modal::{LogoutAction, LogoutConfirmModalAction}, profile::user_profile::UserProfile, settings::PopulateMode, shared::{avatar::{AvatarState, AvatarWidgetExt}, confirmation_modal::ConfirmationModalContent, file_upload_modal::{FileUploadMetadata, PendingUpload, handle_picked_file, handle_picker_launch_errors}, popup_list::{PopupKind, enqueue_popup_notification}}, sliding_sync::{get_client, submit_async_request, AccountDataAction, MatrixRequest}, utils, verification::VerificationStateAction};
 
 script_mod! {
     use mod.prelude.widgets.*
@@ -658,12 +658,7 @@ impl AccountSettings {
             ).is_ok();
         }
         if !drew_avatar {
-            our_own_avatar.show_text(
-                cx,
-                Some(COLOR_ROBRIX_PURPLE),
-                None, // don't make this avatar clickable; we handle clicks on this ProfileIcon widget directly.
-                own_profile.displayable_name(),
-            );
+            our_own_avatar.show_user_text(cx, &own_profile.user_id, own_profile.displayable_name());
         }
 
         Self::enable_upload_avatar_button(

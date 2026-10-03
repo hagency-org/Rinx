@@ -567,7 +567,11 @@ impl MatrixLinkPill {
                 return true;
             }
         }
-        avatar_ref.show_text(cx, None, None, display_name);
+        if let Some(MatrixId::User(user_id)) = &self.matrix_id {
+            avatar_ref.show_user_text(cx, user_id, display_name);
+        } else {
+            avatar_ref.show_text(cx, None, None, display_name);
+        }
         !can_improve
     }
 }

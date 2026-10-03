@@ -281,7 +281,7 @@ impl Widget for MobileChatInfo {
                         let loaded = profile.avatar_state.update_from_cache(cx).is_some_and(|image| {
                             avatar.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).is_ok()
                         });
-                        if !loaded { avatar.show_text(cx, None, None, profile.displayable_name()); }
+                        if !loaded { avatar.show_user_text(cx, &profile.user_id, profile.displayable_name()); }
                         widget
                     } else {
                         let index_in_actions = index - data.members.len() - 3;

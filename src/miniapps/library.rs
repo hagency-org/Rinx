@@ -580,7 +580,11 @@ impl Widget for MiniAppLibrary {
                     if self.icons.get(&image.widget_uid()) != Some(&key) {
                         let _ = image.load_svg_from_data(
                             cx,
-                            include_bytes!("../../resources/icons/add_attachment.svg"),
+                            if id == crate::system_apps::ARTICLE_ID {
+                                include_bytes!("../../resources/icons/file.svg")
+                            } else {
+                                include_bytes!("../../resources/icons/squares_filled.svg")
+                            },
                         );
                         if source.starts_with("https://") {
                             let _ = image.load_image_http_by_url_async(cx, source);

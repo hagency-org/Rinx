@@ -20,7 +20,7 @@ pub struct Stored {
     pub previous: Option<Preferences>,
 }
 
-pub fn load(dir: &Path, family: DesktopStyle) -> Stored {
+pub fn load(cx: &mut Cx, dir: &Path, family: DesktopStyle) -> Stored {
     // An interrupted first render must never trap startup in the new theme.
     if dir.join("theme-rollback.json").exists() {
         let Ok(bytes) = read_bounded(&dir.join("theme-rollback.json")) else {
@@ -28,7 +28,7 @@ pub fn load(dir: &Path, family: DesktopStyle) -> Stored {
         };
         if bytes.len() <= contract::MAX_BYTES * 3 {
             if let Ok(old) = serde_json::from_slice::<Stored>(&bytes) {
-                if stylesheet(&old.current, family).is_ok() {
+                if stylesheet(cx, &old.current, family).is_ok() {
                     if save(dir, &old).is_ok() {
                         let _ = std::fs::remove_file(dir.join("theme-rollback.json"));
                     }
@@ -43,11 +43,11 @@ pub fn load(dir: &Path, family: DesktopStyle) -> Stored {
         .filter(|b| b.len() <= contract::MAX_BYTES * 3)
         .and_then(|b| serde_json::from_slice::<Stored>(&b).ok());
     if let Some(mut stored) = stored {
-        if stylesheet(&stored.current, family).is_ok() {
+        if stylesheet(cx, &stored.current, family).is_ok() {
             return stored;
         }
         if let Some(previous) = stored.previous.take() {
-            if stylesheet(&previous, family).is_ok() {
+            if stylesheet(cx, &previous, family).is_ok() {
                 return Stored {
                     current: previous,
                     previous: None,
@@ -141,7 +141,8 @@ pub(crate) fn family(cx: &mut Cx) -> DesktopStyle {
 }
 pub fn preview(cx: &mut Cx, preferences: Preferences) -> Result<(), String> {
     current(cx)?;
-    let sheet = stylesheet(&preferences, family(cx))?;
+    let family = family(cx);
+    let sheet = stylesheet(cx, &preferences, family)?;
     install(cx, sheet, preferences, true);
     Ok(())
 }
@@ -153,13 +154,15 @@ pub fn cancel(cx: &mut Cx) -> Result<(), String> {
             .preferences
             .clone()
     });
-    let sheet = stylesheet(&preferences, family(cx))?;
+    let family = family(cx);
+    let sheet = stylesheet(cx, &preferences, family)?;
     install(cx, sheet, preferences, false);
     Ok(())
 }
 pub fn apply(cx: &mut Cx, preferences: Preferences) -> Result<(), String> {
     current(cx)?;
-    let sheet = stylesheet(&preferences, family(cx))?;
+    let family = family(cx);
+    let sheet = stylesheet(cx, &preferences, family)?;
     let old = cx.with_vm(|vm| {
         let key = vm.bx.heap.heap_key();
         vm.cx_mut().global::<Runtime>().heaps[&key]
@@ -274,7 +277,7 @@ pub fn export_current(cx: &mut Cx) -> Result<ThemePackage, String> {
             appearance,
             ..pref.selection
         };
-        let tokens = resolve(&ThemePackage::blank("Base"), selection, family)?;
+        let tokens = resolve(cx, &ThemePackage::blank("Base"), selection, family)?;
         for (name, token) in tokens {
             package.set(Some(appearance == Appearance::Dark), &name, token);
         }
@@ -389,21 +392,31 @@ pub fn base_tokens(s: &Snapshot) -> Tokens {
 }
 /// Evaluate the actual framework base in a disposable VM; never execute imported text.
 pub fn resolve(
+    cx: &mut Cx,
     package: &ThemePackage,
     selection: Selection,
     family: DesktopStyle,
 ) -> Result<Tokens, String> {
-    let mut cx = Cx::new(Box::new(|_, _| {}));
-    cx.with_vm(|vm| {
-        desktop_style::install(vm, selection.stylesheet(family));
+    // A second Cx replaces Makepad's process-wide action sender, stranding
+    // async image decodes (and Matrix actions) when that context is dropped.
+    // Evaluate the trusted base in a disposable VM on the existing UI context.
+    let icons = cx.with_vm(|vm| desktop_style::current(vm).map(|sheet| sheet.icons));
+    let isolate = cx.alloc_splash_vm();
+    let result = cx.with_script_vm_id_trusted(isolate, |vm| {
+        makepad_widgets::makepad_draw::makepad_platform::script::script_mod(vm);
+        let mut sheet = selection.stylesheet(family);
+        if let Some(icons) = icons { sheet.icons = icons; }
+        desktop_style::install(vm, sheet);
         makepad_widgets::script_mod(vm);
         package.resolve(
             selection.appearance == Appearance::Dark,
             &base_tokens(&snapshot_for_vm(vm)),
         )
-    })
+    });
+    cx.free_splash_vm(isolate);
+    result
 }
-pub fn stylesheet(preferences: &Preferences, family: DesktopStyle) -> Result<StyleSheet, String> {
+pub fn stylesheet(cx: &mut Cx, preferences: &Preferences, family: DesktopStyle) -> Result<StyleSheet, String> {
     let mut selection = preferences.selection;
     if preferences.follow_system {
         selection.appearance = super::system::appearance();
@@ -417,6 +430,7 @@ pub fn stylesheet(preferences: &Preferences, family: DesktopStyle) -> Result<Sty
     let mut active = None;
     for appearance in [Appearance::Light, Appearance::Dark] {
         let tokens = resolve(
+            cx,
             package,
             Selection {
                 appearance,
@@ -457,12 +471,13 @@ mod tests {
             &serde_json::to_vec(&old).unwrap(),
         )
         .unwrap();
-        assert_eq!(load(&path, DesktopStyle::Macos).current, old.current);
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, old.current);
         assert!(!path.join("theme-rollback.json").exists());
-        assert_eq!(load(&path, DesktopStyle::Macos).current, old.current);
+        assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, old.current);
         atomic_write(&path, "theme-state.json", b"truncated json").unwrap();
         assert_eq!(
-            load(&path, DesktopStyle::Macos).current,
+            load(&mut cx, &path, DesktopStyle::Macos).current,
             Preferences::default()
         );
         std::fs::remove_dir_all(path).unwrap();
@@ -497,8 +512,8 @@ mod tests {
                     },
                     follow_system: false,
                 };
-                let sheet = stylesheet(&preferences, family).unwrap();
                 let mut cx = Cx::new(Box::new(|_, _| {}));
+                let sheet = stylesheet(&mut cx, &preferences, family).unwrap();
                 cx.with_vm(|vm| {
                     desktop_style::install(vm, sheet);
                     vm.bx.captured_errors = Some(Vec::new());
@@ -530,7 +545,8 @@ mod tests {
             package: Some(p),
             ..Default::default()
         };
-        stylesheet(&pref, DesktopStyle::Macos).unwrap();
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        stylesheet(&mut cx, &pref, DesktopStyle::Macos).unwrap();
         let path = std::env::temp_dir().join(format!("rinx-theme-test-{}", uuid::Uuid::new_v4()));
         save(
             &path,
@@ -540,7 +556,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(load(&path, DesktopStyle::Macos).current, pref);
+        assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, pref);
         let mut bad = pref.clone();
         bad.package.as_mut().unwrap().schema_version = 99;
         save(
@@ -551,7 +567,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(load(&path, DesktopStyle::Macos).current, pref);
+        assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, pref);
         std::fs::remove_dir_all(path).unwrap();
     }
 }

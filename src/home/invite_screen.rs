@@ -454,10 +454,9 @@ impl Widget for InviteScreen {
                 ).is_ok();
             }
             if !drew_avatar {
-                inviter_avatar.show_text(
+                inviter_avatar.show_user_text(
                     cx,
-                    None,
-                    None, // don't make this avatar clickable.
+                    &inviter.user_id,
                     inviter.display_name.as_deref().unwrap_or_else(|| inviter.user_id.as_str()),
                 );
             }
@@ -487,6 +486,7 @@ impl Widget for InviteScreen {
         let room_view = self.view.view(cx, ids!(room_view));
         let room_avatar = room_view.avatar(cx, ids!(room_avatar));
         match &info.room_avatar() {
+            FetchedRoomAvatar::Members(_) => room_avatar.show_room_avatar(cx, info.room_avatar()),
             FetchedRoomAvatar::Text(text) => {
                 room_avatar.show_text(
                     cx,

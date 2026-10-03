@@ -291,7 +291,7 @@ impl MobileSettings {
         let mut state = profile.avatar_state.clone();
         state.update_from_cache(cx)
             .and_then(|image| avatar.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).ok())
-            .unwrap_or_else(|| avatar.show_text(cx, None, None, profile.displayable_name()));
+            .unwrap_or_else(|| avatar.show_user_text(cx, &profile.user_id, profile.displayable_name()));
     }
     fn open_account_url(&self) {
         match &self.account_url {

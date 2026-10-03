@@ -289,11 +289,11 @@ script_mod! {
             }
             octoscript_apps_button := mod.widgets.NavigationTabButton {
                 tooltip_text: "Mini apps"
-                icon.draw_icon.svg: ICON_GLOBE
+                icon.draw_icon.svg: ICON_SQUARES
             }
             article_editor_button := mod.widgets.NavigationTabButton {
                 tooltip_text: #(crate::i18n::tr("Article editor"))
-                icon.draw_icon.svg: ICON_EDIT
+                icon.draw_icon.svg: ICON_FILE
             }
             CachedWidget {
                 add_room_button := mod.widgets.AddRoomButton {}
@@ -522,12 +522,7 @@ impl Widget for ProfileIcon {
             ).is_ok();
         }
         if !drew_avatar {
-            our_own_avatar.show_text(
-                cx,
-                Some(crate::shared::design_tokens::RBX_IDENTITY_TEAL),
-                None, // don't make this avatar clickable; we handle clicks on this ProfileIcon widget directly.
-                own_profile.displayable_name(),
-            );
+            our_own_avatar.show_user_text(cx, &own_profile.user_id, own_profile.displayable_name());
         }
 
         self.inner.draw_walk(cx, scope, walk)

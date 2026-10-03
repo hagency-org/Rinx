@@ -614,11 +614,11 @@ impl Widget for UserProfileSlidingPane {
         info.avatar_state
             .image()
             .and_then(|image| avatar_ref.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).ok())
-            .unwrap_or_else(|| avatar_ref.show_text(cx, None, None, info.displayable_name()));
+            .unwrap_or_else(|| avatar_ref.show_user_text(cx, &info.user_id, info.displayable_name()));
         let mobile_avatar = self.avatar(cx, ids!(mp_card.avatar));
         info.avatar_state.image()
             .and_then(|image| mobile_avatar.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).ok())
-            .unwrap_or_else(|| mobile_avatar.show_text(cx, None, None, info.displayable_name()));
+            .unwrap_or_else(|| mobile_avatar.show_user_text(cx, &info.user_id, info.displayable_name()));
 
         // Set the membership status and role in the room.
         self.label(cx, ids!(membership_title_label)).set_text(cx, &info.membership_title());

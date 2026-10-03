@@ -84,7 +84,8 @@ pub fn handle_event(cx: &mut Cx, event: &Event) {
         DARK.store(appearance == Appearance::Dark, Ordering::Relaxed);
         if let Ok(pref) = packages::current(cx) {
             if pref.follow_system {
-                if let Ok(sheet) = packages::stylesheet(&pref, packages::family(cx)) {
+                let family = packages::family(cx);
+                if let Ok(sheet) = packages::stylesheet(cx, &pref, family) {
                     let preview = packages::is_preview(cx);
                     packages::install(cx, sheet, pref, preview);
                 }

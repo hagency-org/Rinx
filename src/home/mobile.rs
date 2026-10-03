@@ -165,9 +165,9 @@ script_mod! {
             discover := ScrollYView {
                 width: Fill height: Fill flow: Down spacing: 8
                 mod.widgets.MobileSection {
-                    discover_mini_apps := mod.widgets.MobileRow {title.text: "Mini apps" icon.draw_icon.svg: ICON_ADD_ATTACHMENT}
+                    discover_mini_apps := mod.widgets.MobileRow {title.text: "Mini apps" icon.draw_icon.svg: ICON_SQUARES}
                     mod.widgets.MobileDivider {}
-                    discover_article := mod.widgets.MobileRow {title.text: #(crate::i18n::tr("Article editor")) title.i18n_text: "Article editor" icon.draw_icon.svg: ICON_ADD_ATTACHMENT}
+                    discover_article := mod.widgets.MobileRow {title.text: #(crate::i18n::tr("Article editor")) title.i18n_text: "Article editor" icon.draw_icon.svg: ICON_FILE}
                     mod.widgets.MobileDivider {}
                     discover_moments := mod.widgets.MobileRow {title.text: #(crate::i18n::tr("Moments")) title.i18n_text: "Moments" icon.draw_icon.svg: ICON_GLOBE}
                     mod.widgets.MobileDivider {}
@@ -408,7 +408,7 @@ impl MobileHub {
         if let Some(image) = avatar_state.update_from_cache(cx) {
             if avatar.show_image(cx, None, |cx, img| utils::load_avatar_image(&img, cx, image)).is_ok() { return; }
         }
-        avatar.show_text(cx, None, None, profile.displayable_name());
+        avatar.show_user_text(cx, &profile.user_id, profile.displayable_name());
     }
 }
 

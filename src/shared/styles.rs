@@ -102,6 +102,7 @@ script_mod! {
 
 
     mod.widgets.MESSAGE_FONT_SIZE = mod.widgets.RINX_BODY_SIZE
+    mod.widgets.MOBILE_MESSAGE_FONT_SIZE = 12.5 * mod.widgets.RINX_TEXT_SCALE
     mod.widgets.REDACTED_MESSAGE_FONT_SIZE = 10 * mod.widgets.RINX_TEXT_SCALE
 
     mod.widgets.MESSAGE_TEXT_COLOR = mod.widgets.RINX_INK

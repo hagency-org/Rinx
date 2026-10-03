@@ -305,6 +305,7 @@ impl AppMain for App {
                     ))
                     .unwrap();
                     let tokens = theme::packages::resolve(
+                        cx,
                         &p,
                         Selection::default(),
                         desktop_style::DesktopStyle::Macos,

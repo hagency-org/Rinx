@@ -142,6 +142,7 @@ impl ThemeStudio {
         let selected = packages::current(cx).unwrap_or_default().selection;
         let family = packages::family(cx);
         let resolved_light = packages::resolve(
+            cx,
             &package,
             crate::theme::Selection {
                 appearance: crate::theme::Appearance::Light,
@@ -151,6 +152,7 @@ impl ThemeStudio {
         )
         .unwrap_or_default();
         let resolved_dark = packages::resolve(
+            cx,
             &package,
             crate::theme::Selection {
                 appearance: crate::theme::Appearance::Dark,

@@ -63,6 +63,7 @@ mod tests {
             });
         }
         let tokens = packages::resolve(
+            &mut first,
             &octosense_theme_contract::ThemePackage::blank("Host"),
             Selection::default(),
             DesktopStyle::Macos,

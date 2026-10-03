@@ -686,6 +686,7 @@ impl Widget for AddRoomScreen {
                 // Populate the content of the fetched room preview.
                 let room_avatar = fetched_room_summary.avatar(cx, ids!(room_avatar));
                 match &frp.room_avatar {
+                    FetchedRoomAvatar::Members(_) => room_avatar.show_room_avatar(cx, &frp.room_avatar),
                     FetchedRoomAvatar::Text(text) => {
                         room_avatar.show_text(cx, None, None, text);
                     }

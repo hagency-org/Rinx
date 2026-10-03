@@ -480,7 +480,7 @@ impl ScriptHook for RoomInputBar {
     ) {
         self.appearance = crate::theme::snapshot_for_vm(vm);
         if apply.is_script_reapply() {
-            self.enable_send_message_button(vm.cx_mut(), self.is_send_enabled);
+            vm.with_cx_mut(|cx| self.enable_send_message_button(cx, self.is_send_enabled));
         }
     }
     fn on_after_new(&mut self, vm: &mut ScriptVm) {

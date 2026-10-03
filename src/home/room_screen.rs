@@ -457,15 +457,15 @@ script_mod! {
             draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: theme.corner_radius}
             message := HtmlOrPlaintext {
                 selectable: true
-                plaintext_view +: {pt_label +: {draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: (12.5 * mod.widgets.RINX_TEXT_SCALE)}}}}
-                html_view +: {html +: {font_size: (12.5 * mod.widgets.RINX_TEXT_SCALE) font_color: mod.widgets.RINX_INK}}
+                plaintext_view +: {pt_label +: {draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE}}}}
+                html_view +: {html +: {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE font_color: mod.widgets.RINX_INK}}
             }
             mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
                 octos_action_card := mod.widgets.OctosActionCard {}
                 agent_reply := mod.widgets.AgentReply {}
-            link_preview_view := mod.widgets.LinkPreview {}
+            link_preview_view := mod.widgets.LinkPreview {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE}
             download_section := mod.widgets.MessageDownloadSection {}
         }
         mobile_reply_preview := mod.widgets.MobileRepliedToMessage {}
@@ -4969,11 +4969,11 @@ fn populate_message_view(
                     } else { id!(MiniAppMessage) };
                     let (item, _) = list.item_with_existed(cx, item_id, template);
                     item.link_preview(cx, ids!(content.link_preview_view)).clear(cx);
-                    web_mini_app = Some(SharedMiniApp::PublishedArticle {
-                        title: article.unwrap().document.title,
-                        room: timeline_kind.room_id().to_owned(),
-                        event: event_tl_item.event_id().unwrap().to_owned(),
-                    });
+                    web_mini_app = Some(SharedMiniApp::published_article(
+                        article.unwrap(),
+                        timeline_kind.room_id().to_owned(),
+                        event_tl_item.event_id().unwrap().to_owned(),
+                    ));
                     new_drawn_status.content_drawn = true;
                     (item, false)
                 }
@@ -5557,7 +5557,10 @@ fn populate_message_view(
 
     item.widget(cx, ids!(content.message)).set_visible(cx, web_mini_app.is_none() && forward_bundle.is_none());
     item.forward_card(cx, ids!(content.forward_card)).set_bundle(cx, forward_bundle);
-    item.mini_app_card(cx, ids!(content.mini_app_card)).set_app(cx, web_mini_app, timeline_kind);
+    new_drawn_status.content_drawn &= item.mini_app_card(cx, ids!(content.mini_app_card)).set_app(
+        cx, web_mini_app, timeline_kind,
+        |source| media_cache.try_get_media_or_fetch(source, MediaFormat::File).0,
+    );
 
     let timeline_event_id = event_tl_item.identifier();
 

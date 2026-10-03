@@ -190,6 +190,7 @@ impl TombstoneFooter {
                         .unwrap_or("Join the replacement room")
                 );
                 match &room_preview.room_avatar {
+                    FetchedRoomAvatar::Members(_) => successor_room_avatar.show_room_avatar(cx, &room_preview.room_avatar),
                     FetchedRoomAvatar::Text(text) => {
                         successor_room_avatar.show_text(cx, None, None, text);
                     }

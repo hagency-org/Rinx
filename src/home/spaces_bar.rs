@@ -285,6 +285,7 @@ impl SpacesBarEntry {
         if self.last_avatar.as_ref() != Some(avatar) {
             let avatar_ref = self.inner.view.avatar(cx, ids!(avatar));
             match avatar {
+                FetchedRoomAvatar::Members(_) => avatar_ref.show_room_avatar(cx, avatar),
                 FetchedRoomAvatar::Text(text) => avatar_ref.show_text(cx, None, None, text),
                 FetchedRoomAvatar::Image(image) => {
                     let res = avatar_ref.show_image(

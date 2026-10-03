@@ -698,6 +698,9 @@ impl RoomsListEntryContent {
                 FetchedRoomAvatar::Text(text) => {
                     self.view.avatar(cx, ids!(avatar)).show_text(cx, None, None, text);
                 }
+                FetchedRoomAvatar::Members(_) => {
+                    self.view.avatar(cx, ids!(avatar)).show_room_avatar(cx, room_avatar);
+                }
                 FetchedRoomAvatar::Image(avatar_image) => {
                     let _ = self.view.avatar(cx, ids!(avatar)).show_image(
                         cx,

@@ -52,6 +52,7 @@ script_mod! {
     mod.widgets.LinkPreview = #(LinkPreview::register_widget(vm)) {
         width: Fill{max: 440}, height: Fit,
         flow: Down,
+        font_size: mod.widgets.MESSAGE_FONT_SIZE
 
         previews := View {
             width: Fill height: Fit flow: Down
@@ -191,6 +192,8 @@ pub struct LinkPreview {
     view: View,
     #[live]
     preview_template: Option<LivePtr>,
+    #[live]
+    font_size: f32,
     #[rust]
     children: Vec<ViewRef>,
     #[rust]
@@ -304,6 +307,15 @@ impl Widget for LinkPreview {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        // Previews are instantiated outside the message's widget tree. Carry its
+        // body size explicitly, including mobile overrides and live theme reloads.
+        for child in &self.children {
+            for path in [ids!(title_label), ids!(description_label)] {
+                if let Some(mut label) = child.label(cx, path).borrow_mut() {
+                    label.draw_text.text_style.font_size = self.font_size;
+                }
+            }
+        }
         self.view.draw_walk(cx, scope, walk)
     }
 }

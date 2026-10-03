@@ -83,11 +83,11 @@ script_mod! {
                 text: #(crate::i18n::tr("Send current location")) i18n_text: "Send current location"
             }
             article_editor_button := mod.widgets.RoomInputPopupMenuButton {
-                draw_icon.svg: (ICON_ADD_ATTACHMENT)
+                draw_icon.svg: ICON_FILE
                 text: #(crate::i18n::tr("Article editor")) i18n_text: "Article editor"
             }
             share_mini_app_button := mod.widgets.RoomInputPopupMenuButton {
-                draw_icon.svg: (ICON_ADD_ATTACHMENT)
+                draw_icon.svg: ICON_SQUARES
                 text: #(crate::i18n::tr("Share mini app")) i18n_text: "Share mini app"
             }
         }
