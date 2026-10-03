@@ -11,3 +11,4 @@ implemented. An ADR is not evidence that a feature has shipped.
 | [0006](0006-shared-app-hub-miniapps.md) | Accepted; implemented | Shared App Hub distribution and native mini-app library |
 | [0007](0007-host-owned-octos-app-peers.md) | Accepted; implemented in part (native hosted flows unverified) | Host-owned Octos app peers and Rinx deployment modes |
 | [0008](0008-rinx-system-app-catalog.md) | Accepted; implemented | Bundled native/OctoScript catalog, packaging and deployment boundaries |
+| [0009](0009-shared-reloadable-themes.md) | Accepted; implementation not started | Shared OctoSense/Makepad themes, Rinx and mini-app design language, live reapply and customer themes |
