@@ -36,6 +36,21 @@ The executable is `rinx`, and the macOS app is `Rinx.app`. HTML/CSS preview is e
 
 Rinx needs a Matrix homeserver supporting native Sliding Sync. Enter account credentials directly in the app. On Linux, install the native dependencies listed in the [inherited build guide](docs/robrix-upstream-readme.md#building--running-robrix-on-desktop); use `rinx` wherever that historical guide names the package or executable `robrix`. Mobile packaging scripts have been renamed for Rinx but require your own signing configuration and device validation.
 
+Windows is the same toolchain and the same command. Install Rust and CMake (the CMake installer, or `winget install Kitware.CMake`), then
+
+```powershell
+git clone https://github.com/upstreamlabs/Rinx.git
+cd Rinx
+cargo run --locked --features agent_chat
+```
+
+The executable is `rinx.exe`. The two differences from the Unix builds are the name of the kernel and where it has to sit: `python3 tools/package-octos.py desktop` builds `octos-x86_64-pc-windows-msvc.exe` and stages it under `dist/runtime/`, while Rinx looks for the kernel as **`octos.exe` beside `rinx.exe`** (or at `RINX_OCTOS_BIN`). A development `cargo run` therefore wants it beside the built executable, in the target directory. Without it, `Assistant (this device)` reports "no packaged assistant runtime" and nothing says the name is what differs.
+
+Two things to expect once it is running:
+
+- **The kernel's console window takes the foreground**, and the Rinx window then receives no keystrokes until it is clicked again. A run that appears to ignore the keyboard is usually this.
+- **In a proxied shell, set `NO_PROXY=*`** for Rinx; otherwise its requests time out inside the app while the shell itself looks healthy.
+
 HTTP(S) link previews follow Robrix's native card implementation: the homeserver's
 `/_matrix/client/v1/media/preview_url` endpoint supplies the title, description,
 and thumbnail. The homeserver must permit URL previews. If Palpo returns

@@ -39,6 +39,27 @@ The macOS development runner copies and signs the adjacent kernel inside
 its development bundle. `--kernel <path>` can reuse a native executable
 whose version reports the pinned revision. It is not a cross-build option.
 
+## Windows
+
+The desktop helper builds the same pinned kernel for the MSVC target: the
+artifact it reports under `dist/runtime/` is
+`octos-x86_64-pc-windows-msvc.exe`. Rinx discovers it as **`octos.exe` beside
+`rinx.exe`** (or at `RINX_OCTOS_BIN`), so a development staging copies it to
+that name:
+
+```powershell
+cargo build --profile fast
+python3 tools/package-octos.py desktop --app-binary target/fast/rinx.exe
+```
+
+There is no signing step, and the executable cargo builds is `rinx.exe`: for
+`cargo run` to find the kernel it has to end up beside it, in the same target
+directory. Runtime staging stays below `dist/runtime/` here too, for the same
+reason as on macOS.
+
+The kernel starts a console window, and that window takes the foreground; the
+Rinx window then receives no keystrokes until it is focused again.
+
 ## Android
 
 Use the pinned cargo-makepad and a **full** NDK (its minimal installation
