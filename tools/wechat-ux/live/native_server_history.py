@@ -69,7 +69,7 @@ class App(NativeApp):
                         raise
                     time.sleep(.05)
         return result
-    def launch(self, binary):
+    def launch(self, binary, timeout=60):
         self.root.mkdir(parents=True, exist_ok=True)
         self.output.mkdir(parents=True, exist_ok=True)
         Path('target').mkdir(exist_ok=True)
@@ -80,7 +80,10 @@ class App(NativeApp):
         self.process = subprocess.Popen([str(binary.resolve()), '--login-screen'], env=dict(os.environ,
             RINX_DATA_DIR=str(profile), MAKEPAD_REMOTE=str(self.port), MAKEPAD_HIDE_WINDOWS='1', MAKEPAD_NO_FOCUS='1', RUST_BACKTRACE='1'),
             stdout=self.log, stderr=subprocess.STDOUT)
-        for _ in range(150):
+        # Cold Makepad resources/font initialization can exceed 15 seconds on a
+        # busy build machine. Readiness is still verified against our own PID.
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
             if self.process.poll() is not None:
                 raise RuntimeError(f'App exited; see {self.output}')
             try:

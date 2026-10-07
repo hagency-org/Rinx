@@ -89,6 +89,33 @@ pub struct LoginMethods {
     pub providers: Vec<LoginProvider>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RegistrationRoute {
+    BrowserSso,
+    Native,
+    Website(&'static str),
+    Unavailable,
+}
+
+impl LoginMethods {
+    /// Capabilities take priority over catalog hints. Password login alone does
+    /// not imply registration is enabled; legacy servers enforce that on POST.
+    pub fn registration_route(&self, selected_server: &str) -> RegistrationRoute {
+        if self.sso && self.browser_registration {
+            RegistrationRoute::BrowserSso
+        } else if self.password && !self.oauth_aware_preferred {
+            RegistrationRoute::Native
+        } else if self.sso {
+            super::server_catalog::find(selected_server)
+                .and_then(|entry| entry.signup_website)
+                .map(RegistrationRoute::Website)
+                .unwrap_or(RegistrationRoute::Unavailable)
+        } else {
+            RegistrationRoute::Unavailable
+        }
+    }
+}
+
 pub async fn login_methods(client: &Client) -> Result<LoginMethods> {
     let response = client.matrix_auth().get_login_types().await?;
     let mut methods = LoginMethods {
@@ -105,9 +132,6 @@ pub async fn login_methods(client: &Client) -> Result<LoginMethods> {
             LoginType::Sso(sso) => {
                 methods.sso = true;
                 methods.oauth_aware_preferred = sso.oauth_aware_preferred;
-                if sso.oauth_aware_preferred {
-                    methods.browser_registration = browser_registration_supported(client).await;
-                }
                 methods
                     .providers
                     .extend(sso.identity_providers.into_iter().map(|p| LoginProvider {
@@ -117,6 +141,9 @@ pub async fn login_methods(client: &Client) -> Result<LoginMethods> {
             }
             _ => {}
         }
+    }
+    if methods.sso {
+        methods.browser_registration = browser_registration_supported(client).await;
     }
     Ok(methods)
 }
@@ -180,6 +207,11 @@ async fn discover_with_timeout(
 pub async fn register_account(client: &Client, username: String, password: String, token: String) -> Result<()> {
     use matrix_sdk::ruma::api::client::{account::register::v3::Request, uiaa::{AuthData, AuthType, Dummy, RegistrationToken}};
 
+    // Recheck before sending credentials: a server may have migrated to MAS
+    // since the user opened the native registration form.
+    if login_methods(client).await?.registration_route(client.homeserver().as_str()) != RegistrationRoute::Native {
+        bail!("{}", crate::i18n::tr("The server's registration method changed. Check the server again."));
+    }
     let mut request = Request::new();
     request.username = Some(username);
     request.password = Some(password);
@@ -354,7 +386,11 @@ mod tests {
                     } else if route.contains("/auth_metadata ") {
                         serde_json::json!({"prompt_values_supported":["login","create"]})
                     } else if route.starts_with("GET ") && route.contains("/login ") {
-                        serde_json::json!({"flows":[{"type":"m.login.password"},{"type":"m.login.sso","oauth_aware_preferred":true,"identity_providers":[{"id":"company-custom-id","name":"Company SSO"}]},{"type":"m.login.token"}]})
+                        if registration_token.is_some() {
+                            serde_json::json!({"flows":[{"type":"m.login.password"}]})
+                        } else {
+                            serde_json::json!({"flows":[{"type":"m.login.password"},{"type":"m.login.sso","oauth_aware_preferred":true,"identity_providers":[{"id":"company-custom-id","name":"Company SSO"}]},{"type":"m.login.token"}]})
+                        }
                     } else if route.starts_with("POST ") && route.contains("/register ") && registration_token.is_some() {
                         let stage = if registration_token == Some("") { "m.login.dummy" } else { "m.login.registration_token" };
                         let completed = json["auth"]["type"] == stage && (stage == "m.login.dummy" || json["auth"]["token"] == registration_token.unwrap());
@@ -405,6 +441,54 @@ mod tests {
         assert!(methods.oauth_aware_preferred && methods.browser_registration);
         assert_eq!(methods.providers[0].id, "company-custom-id");
         assert_eq!(methods.providers[0].name, "Company SSO");
+        assert_eq!(methods.registration_route("custom.example"), RegistrationRoute::BrowserSso);
+    }
+
+    #[test]
+    fn registration_routing_uses_capabilities_before_catalog_hints() {
+        let mut methods = LoginMethods {
+            homeserver: "https://discovered.example/".into(),
+            password: false, sso: true, oauth_aware_preferred: true,
+            browser_registration: false, providers: Vec::new(),
+        };
+        assert_eq!(methods.registration_route("matrix.org"), RegistrationRoute::Unavailable);
+        assert_eq!(methods.registration_route("mozilla.org"), RegistrationRoute::Website("https://chat.mozilla.org"));
+        assert_eq!(methods.registration_route("custom.example"), RegistrationRoute::Unavailable);
+        methods.browser_registration = true;
+        for server in ["matrix.org", "tchncs.de", "mozilla.org", "custom.example"] {
+            assert_eq!(methods.registration_route(server), RegistrationRoute::BrowserSso);
+        }
+        methods.browser_registration = false;
+        methods.password = true;
+        assert_eq!(methods.registration_route("matrix.org"), RegistrationRoute::Unavailable, "MAS password compatibility is not native registration");
+        methods.oauth_aware_preferred = false;
+        assert_eq!(methods.registration_route("custom.example"), RegistrationRoute::Native);
+        methods.password = false;
+        methods.sso = false;
+        assert_eq!(methods.registration_route("mozilla.org"), RegistrationRoute::Unavailable);
+    }
+
+    #[tokio::test]
+    async fn registration_credentials_only_reach_the_selected_backend() {
+        let previous = Server::with_registration(Some(""));
+        let selected = Server::with_registration(Some(""));
+        discover("", &previous.url).await.unwrap();
+        let methods = discover("", &selected.url).await.unwrap();
+        let client = Client::builder().homeserver_url(&methods.homeserver).build().await.unwrap();
+        register_account(&client, "selected_user".into(), "selected-server-password".into(), "".into()).await.unwrap();
+        assert!(previous.requests.lock().unwrap().iter().all(|(route, body)| route.starts_with("GET ") && body.is_null()));
+        let received = selected.requests.lock().unwrap();
+        let posts: Vec<_> = received.iter().filter(|(route, _)| route.starts_with("POST ")).collect();
+        assert_eq!(posts.len(), 2);
+        assert!(posts.iter().all(|(route, body)| route.contains("/_matrix/client/v3/register ") && body["username"] == "selected_user" && body["password"] == "selected-server-password"));
+    }
+
+    #[tokio::test]
+    async fn migrated_server_does_not_receive_native_registration_credentials() {
+        let server = Server::new(); // MAS, including its compatibility password login.
+        let error = register_account(&server.client().await, "new_user".into(), "secret-password".into(), "".into()).await.unwrap_err();
+        assert!(error.to_string().contains("registration method changed"));
+        assert!(server.requests.lock().unwrap().iter().all(|(route, body)| route.starts_with("GET ") && body.is_null()));
     }
 
     #[tokio::test]
@@ -510,9 +594,13 @@ mod tests {
     #[tokio::test]
     async fn browser_registration_sets_matrix_action_parameter() {
         let server = Server::new();
+        let other = Server::new();
+        discover("", &other.url).await.unwrap();
         let client = server.client().await;
-        browser_login(&client, None, true, |link| async move {
+        let expected_origin = client.homeserver().origin();
+        browser_login(&client, None, true, move |link| async move {
             let url = Url::parse(&link).unwrap();
+            assert_eq!(url.origin(), expected_origin);
             assert!(url.query_pairs().any(|(key, value)| key == "action" && value == "register"));
             let redirect = url.query_pairs().find(|(key, _)| key == "redirectUrl").unwrap().1.into_owned();
             let mut callback = Url::parse(&redirect).unwrap();
@@ -521,6 +609,7 @@ mod tests {
             Ok(())
         }).await.unwrap();
         assert!(client.matrix_auth().logged_in());
+        assert!(other.requests.lock().unwrap().iter().all(|(route, body)| route.starts_with("GET ") && body.is_null()));
     }
 
     #[cfg(not(target_os = "ios"))]

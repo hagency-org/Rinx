@@ -3,7 +3,8 @@ use makepad_widgets::makepad_platform::event::finger::TouchState;
 
 use crate::sliding_sync::{submit_async_request, LoginByPassword, LoginRequest, MatrixRequest};
 
-use super::homeserver::{password_identifier, LoginMethods};
+use super::homeserver::{password_identifier, LoginMethods, RegistrationRoute};
+use super::server_catalog::PUBLIC_SERVERS;
 use super::login_status_modal::{LoginStatusModalAction, LoginStatusModalWidgetExt};
 
 script_mod! {
@@ -27,7 +28,7 @@ script_mod! {
         ScrollYView {
             width: Fill, height: Fill,
             flow: Down, // Required for vertical scrolling to work.
-            align: Align{x: 0.5, y: 0.5}
+            align: Align{x: 0.5, y: 0.0}
             show_bg: true,
             draw_bg.color: (COLOR_SECONDARY)
 
@@ -42,7 +43,7 @@ script_mod! {
             }
 
             RoundedView {
-                margin: Inset{left: 16, right: 16, top: 50, bottom: 50}
+                margin: Inset{left: 16, right: 16, top: 28, bottom: 28}
                 width: Fill
                 height: Fit
                 align: Align{x: 0.5, y: 0.5}
@@ -65,7 +66,7 @@ script_mod! {
 
                     logo_image := Image {
                         fit: ImageFit.Smallest,
-                        width: 80
+                        width: 64
                         src: (mod.widgets.IMG_APP_LOGO),
                     }
 
@@ -87,7 +88,7 @@ script_mod! {
                     }
 
                     server_step := View {
-                        width: Fill{max: 320}, height: Fit, flow: Down, spacing: 14
+                        width: Fill{max: 360}, height: Fit, flow: Down, spacing: 14
 
                         RoundedView {
                             width: Fill, height: Fit
@@ -102,8 +103,38 @@ script_mod! {
                             }
                             Label {
                                 width: Fill, height: Fit
+                                padding: 0
                                 draw_text +: {color: COLOR_TEXT, text_style: REGULAR_TEXT {font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}
                                 text: #(crate::i18n::tr("Choose your homeserver")) i18n_text: "Choose your homeserver"
+                            }
+                            Label {
+                                width: Fill, height: Fit
+                                flow: Flow.Right{wrap: true}
+                                draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                padding: 0
+                                text: #(crate::i18n::tr("Choose a public server or enter your own.")) i18n_text: "Choose a public server or enter your own."
+                            }
+                            public_server_list := PortalList {
+                                width: Fill, height: 216
+                                PublicServer := View {
+                                    width: Fill, height: 72, flow: Down, spacing: 3, padding: 0, margin: 0
+                                    public_server_button := RobrixNeutralIconButton {
+                                        width: Fill, height: 44, padding: 10, margin: 0
+                                        icon_walk: Walk{width: 0, height: 0}
+                                        text: ""
+                                    }
+                                    public_server_description := Label {
+                                        width: Fill, height: Fit, padding: 0
+                                        draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                        text: ""
+                                    }
+                                }
+                            }
+                            Label {
+                                width: Fill, height: Fit
+                                draw_text +: {color: COLOR_TEXT, text_style: REGULAR_TEXT {font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}
+                                padding: 0
+                                text: #(crate::i18n::tr("Server address")) i18n_text: "Server address"
                             }
                             homeserver_input := RobrixTextInput {
                                 width: Fill, height: Fit
@@ -138,11 +169,12 @@ script_mod! {
                                 width: Fill, height: Fit
                                 flow: Flow.Right{wrap: true}
                                 draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
-                                text: #(crate::i18n::tr("Enter a Matrix server name or homeserver URL. Leave blank for matrix.org.")) i18n_text: "Enter a Matrix server name or homeserver URL. Leave blank for matrix.org."
+                                padding: 0
+                                text: #(crate::i18n::tr("Registration options are checked with the selected server.")) i18n_text: "Registration options are checked with the selected server."
                             }
                         }
                         continue_server_button := RobrixIconButton {
-                            width: Fill, height: 42, padding: 10
+                            width: Fill, height: 44, padding: 10
                             align: Align{x: 0.5, y: 0.5}
                             text: #(crate::i18n::tr("Continue")) i18n_text: "Continue"
                         }
@@ -156,7 +188,7 @@ script_mod! {
 
                     method_step := View {
                         visible: false
-                        width: Fill{max: 320}, height: Fit, flow: Down, spacing: 14
+                        width: Fill{max: 360}, height: Fit, flow: Down, spacing: 14
 
                         RoundedView {
                             width: Fill, height: Fit
@@ -178,7 +210,7 @@ script_mod! {
                                     text: #(crate::i18n::tr("Selected server")) i18n_text: "Selected server"
                                 }
                                 edit_server_button := RobrixNeutralIconButton {
-                                    width: 52, height: 26
+                                    width: 60, height: 44
                                     padding: 3, spacing: 0
                                     icon_walk: Walk{width: 0, height: 0}
                                     align: Align{x: 0.5, y: 0.5}
@@ -283,8 +315,14 @@ script_mod! {
                             }
                         }
                         register_option_button := mod.widgets.RinxFlatButton {
-                            width: Fit, height: Fit
+                            width: Fill, height: 44
                             text: #(crate::i18n::tr("Create an account")) i18n_text: "Create an account"
+                        }
+                        registration_hint := Label {
+                            width: Fill, height: Fit
+                            flow: Flow.Right{wrap: true}
+                            draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                            text: ""
                         }
                         registration_form := View {
                             visible: false
@@ -386,9 +424,23 @@ impl Widget for LoginScreen {
         }
         self.view.view(cx, ids!(server_history_container)).set_visible(cx, self.history_open && !self.history_rows.is_empty());
         let history_uid = history.widget_uid();
+        let catalog_uid = self.view.portal_list(cx, ids!(public_server_list)).widget_uid();
         while let Some(item) = self.view.draw_walk(cx, scope, walk).step() {
             let is_history = item.widget_uid() == history_uid;
+            let is_catalog = item.widget_uid() == catalog_uid;
             if let Some(mut list) = item.borrow_mut::<PortalList>() {
+                if is_catalog {
+                    list.set_item_range(cx, 0, PUBLIC_SERVERS.len());
+                    while let Some(index) = list.next_visible_item(cx) {
+                        let Some(entry) = PUBLIC_SERVERS.get(index) else { continue };
+                        let row = list.item(cx, index, id!(PublicServer));
+                        row.button(cx, ids!(public_server_button)).set_text(cx, entry.name);
+                        row.button(cx, ids!(public_server_button)).set_enabled(cx, !self.login_pending);
+                        row.label(cx, ids!(public_server_description)).set_text(cx, crate::i18n::tr(entry.description));
+                        row.draw_all(cx, scope);
+                    }
+                    continue;
+                }
                 if is_history {
                     list.set_item_range(cx, 0, self.history_rows.len());
                     while let Some(index) = list.next_visible_item(cx) {
@@ -492,7 +544,8 @@ impl LoginScreen {
         let has_sso = methods.sso;
         let has_password = methods.password;
         let has_providers = !methods.providers.is_empty();
-        let display_server = methods.homeserver.strip_prefix("https://").unwrap_or(&methods.homeserver);
+        let selected = super::homeserver::login_server("", Some(&self.checked_server)).unwrap_or_else(|_| self.checked_server.clone());
+        let display_server = selected.strip_prefix("https://").unwrap_or(&selected);
         let display_server = display_server.strip_suffix('/').unwrap_or(display_server);
         self.view.label(cx, ids!(selected_server)).set_text(cx, display_server);
         self.view.view(cx, ids!(provider_list_container)).set_visible(cx, has_sso && has_providers);
@@ -501,7 +554,7 @@ impl LoginScreen {
         script_apply_eval!(cx, list, {height: #(height)});
         self.view.button(cx, ids!(browser_login_button)).set_visible(cx, has_sso && !has_providers);
         self.view.button(cx, ids!(password_option_button)).set_visible(cx, has_sso && has_password);
-        self.view.button(cx, ids!(register_option_button)).set_visible(cx, methods.browser_registration || (has_password && !methods.oauth_aware_preferred));
+        self.view.button(cx, ids!(register_option_button)).set_visible(cx, methods.registration_route(&self.checked_server) != RegistrationRoute::Unavailable);
         self.password_form_open = has_password && !has_sso;
         self.view.view(cx, ids!(password_form)).set_visible(cx, self.password_form_open);
         self.view.view(cx, ids!(registration_form)).set_visible(cx, false);
@@ -526,6 +579,14 @@ impl LoginScreen {
             crate::i18n::tr("This server did not advertise SSO or password sign-in.")
         };
         self.view.label(cx, ids!(method_status)).set_text(cx, description);
+        let (button, hint) = match methods.registration_route(&self.checked_server) {
+            RegistrationRoute::BrowserSso => ("Create account in browser", "Registration and any email or captcha checks happen on your server's website. Rinx signs you in when finished."),
+            RegistrationRoute::Native => ("Create an account", "Registration availability and any invitation token are managed by this server."),
+            RegistrationRoute::Website(_) => ("Join on the server website", "Create your community account on the official website, then return here and continue with single sign-on."),
+            RegistrationRoute::Unavailable => ("Create an account", "This server has not advertised an account creation method. Contact its administrator if you need an account."),
+        };
+        self.view.button(cx, ids!(register_option_button)).set_text(cx, crate::i18n::tr(button));
+        self.view.label(cx, ids!(registration_hint)).set_text(cx, crate::i18n::tr(hint));
         self.view.button(cx, ids!(password_option_button)).set_text(cx, if self.password_form_open {
             crate::i18n::tr("Hide password sign-in")
         } else {
@@ -562,7 +623,6 @@ impl MatchEvent for LoginScreen {
         let password_input = self.view.text_input(cx, ids!(password_input));
         let server_input = self.view.text_input(cx, ids!(homeserver_input));
         let modal = self.view.modal(cx, ids!(login_status_modal));
-        let server = server_input.text().trim().to_owned();
 
         let show = self.view.button(cx, ids!(show_password_button));
         let hide = self.view.button(cx, ids!(hide_password_button));
@@ -586,7 +646,12 @@ impl MatchEvent for LoginScreen {
                 row.button(cx, ids!(history_server)).clicked(actions)
                     .then(|| self.history_rows.get(index).cloned()).flatten()
             });
-        if let Some(server) = selected {
+        let public_selected = self.view.portal_list(cx, ids!(public_server_list))
+            .items_with_actions(actions).into_iter().find_map(|(index, row)| {
+                row.button(cx, ids!(public_server_button)).clicked(actions)
+                    .then(|| PUBLIC_SERVERS.get(index).map(|entry| entry.name.to_owned())).flatten()
+            });
+        if let Some(server) = selected.or(public_selected).filter(|_| !self.login_pending) {
             self.reset_server(cx);
             server_input.set_text(cx, &server);
             self.close_history(cx);
@@ -601,7 +666,7 @@ impl MatchEvent for LoginScreen {
             self.view.button(cx, ids!(continue_server_button)).clicked(actions)
             || server_input.returned(actions).is_some()
         ) {
-            self.check_server(cx, server.clone());
+            self.check_server(cx, server_input.text().trim().to_owned());
         }
         if !self.login_pending && self.password_form_open && self.methods.as_ref().is_some_and(|m| m.password) && (
             self.view.button(cx, ids!(login_button)).clicked(actions)
@@ -631,17 +696,20 @@ impl MatchEvent for LoginScreen {
             self.refresh_method_copy(cx);
         }
         if !self.login_pending && self.view.button(cx, ids!(register_option_button)).clicked(actions) {
-            if self.methods.as_ref().is_some_and(|methods| methods.browser_registration) {
-                self.start_sso(cx, None, true);
-            } else if self.methods.as_ref().is_some_and(|methods| methods.password) {
-                self.registration_form_open = true;
-                self.view.view(cx, ids!(provider_list_container)).set_visible(cx, false);
-                self.view.button(cx, ids!(browser_login_button)).set_visible(cx, false);
-                self.view.button(cx, ids!(password_option_button)).set_visible(cx, false);
-                self.view.view(cx, ids!(password_form)).set_visible(cx, false);
-                self.view.button(cx, ids!(register_option_button)).set_visible(cx, false);
-                self.view.view(cx, ids!(registration_form)).set_visible(cx, true);
-                self.refresh_method_copy(cx);
+            match self.methods.as_ref().map(|m| m.registration_route(&self.checked_server)) {
+                Some(RegistrationRoute::BrowserSso) => self.start_sso(cx, None, true),
+                Some(RegistrationRoute::Website(url)) => crate::utils::open_url(url),
+                Some(RegistrationRoute::Native) => {
+                    self.registration_form_open = true;
+                    self.view.view(cx, ids!(provider_list_container)).set_visible(cx, false);
+                    self.view.button(cx, ids!(browser_login_button)).set_visible(cx, false);
+                    self.view.button(cx, ids!(password_option_button)).set_visible(cx, false);
+                    self.view.view(cx, ids!(password_form)).set_visible(cx, false);
+                    self.view.button(cx, ids!(register_option_button)).set_visible(cx, false);
+                    self.view.view(cx, ids!(registration_form)).set_visible(cx, true);
+                    self.refresh_method_copy(cx);
+                }
+                _ => {}
             }
         }
         if !self.login_pending && self.view.button(cx, ids!(back_to_login_button)).clicked(actions) {
