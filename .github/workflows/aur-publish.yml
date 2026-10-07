@@ -37,6 +37,8 @@ jobs:
   # No secrets here on purpose. This is the job that runs repo-controlled shell and
   # a container, so the AUR key must not exist yet while it does.
   render:
+    # AUR publishing requires a separately provisioned package and SSH key.
+    if: github.event_name == 'workflow_dispatch' || vars.ENABLE_AUR_PUBLISH == 'true'
     name: Render and test-build
     runs-on: ubuntu-latest
     timeout-minutes: 45
