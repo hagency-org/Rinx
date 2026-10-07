@@ -417,7 +417,6 @@ impl Widget for MobileHub {
         if matches!(event, Event::Signal) {
             crate::profile::user_profile_cache::process_user_profile_updates(cx);
             crate::avatar_cache::process_avatar_updates(cx);
-            self.view.redraw(cx);
         }
         if self.kind == 0 && (self.selected_profile.is_some() || self.adding_friend || self.groups_open)
             && scope.data.get::<crate::app::AppState>().is_some_and(|app| app.selected_tab == SelectedTab::Contacts)

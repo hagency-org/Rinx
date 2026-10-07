@@ -1156,6 +1156,8 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        #[cfg(feature = "palpo-instrument")]
+        if crate::performance::begin(cx, event) { return; }
         crate::theme::system::handle_event(cx, event);
         // Peek at Back instead of `back_pressed()`, which marks it handled: Back
         // is taken only when it closes one of these modals. Otherwise it goes on
@@ -1219,10 +1221,16 @@ impl AppMain for App {
         }
 
         // Forward events to the MatchEvent trait implementation.
+        #[cfg(feature = "palpo-instrument")]
+        crate::performance::phase(cx, "rinx_prepare");
         self.match_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        crate::performance::phase(cx, "rinx_match");
         crate::agent_access::publish(current_user_id(), &self.app_state.agent_access);
         let scope = &mut Scope::with_data(&mut self.app_state);
         self.ui.handle_event(cx, event, scope);
+        #[cfg(feature = "palpo-instrument")]
+        crate::performance::phase(cx, "rinx_widgets");
         // The backend may restore the next account only after every child has
         // consumed ClearAppState, including hidden settings/room widgets.
         if let Event::Actions(actions) = event {
@@ -1237,6 +1245,11 @@ impl AppMain for App {
             crate::i18n::refresh_ui(cx, &self.ui);
         }
         self.handle_lifecycle_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        {
+            crate::performance::phase(cx, "rinx_finish");
+            crate::performance::end(cx);
+        }
         // Back that nothing in Rinx took is at the root of its navigation. A
         // host decides what that means; standalone on Android, Makepad's view
         // has swallowed the key, so Rinx's Android extension backgrounds the

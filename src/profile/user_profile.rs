@@ -465,7 +465,8 @@ impl Widget for UserProfileSlidingPane {
             avatar_cache::process_avatar_updates(cx);
 
             // Re-fetch the currently-displayed user profile info from the cache in case it was updated.
-            let mut redraw_this_pane = false;
+            // The cache processors invalidate consumers when data changes.
+            // GPU completion signals must not keep this pane repainting.
             if let Some(our_info) = self.info.as_mut() {
                 if let Some((new_profile, room_member)) = user_profile_cache::with_user_profile(
                     cx,
@@ -496,11 +497,7 @@ impl Widget for UserProfileSlidingPane {
                         }
                         _ => { }
                     }
-                    redraw_this_pane = true;
                 }
-            }
-            if redraw_this_pane {
-                self.redraw(cx);
             }
         }
 

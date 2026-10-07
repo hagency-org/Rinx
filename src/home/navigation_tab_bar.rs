@@ -378,7 +378,7 @@ impl Widget for ProfileIcon {
             if self.own_profile.is_none() {
                 user_profile_cache::process_user_profile_updates(cx);
                 self.own_profile = get_own_profile(cx);
-                needs_redraw = true;
+                needs_redraw = self.own_profile.is_some();
             }
             // If we're waiting for an avatar image, process avatar updates.
             if let Some(p) = self.own_profile.as_mut() && p.avatar_state.uri().is_some() {

@@ -985,8 +985,10 @@ impl Widget for MomentsPanel {
         }
         self.view.handle_event(cx, event, scope);
         if matches!(event, Event::Signal) {
+            // Signals also report Metal worker completion. The cache redraws
+            // only when avatar data arrived; redrawing on every signal feeds
+            // each paint's completion back into another paint indefinitely.
             crate::avatar_cache::process_avatar_updates(cx);
-            self.redraw(cx);
         }
         let Event::Actions(actions) = event else {
             return;

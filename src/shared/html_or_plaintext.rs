@@ -411,7 +411,8 @@ impl Widget for MatrixLinkPill {
         if matches!(event, Event::Signal) {
             room_preview_cache::process_room_preview_updates(cx);
             if self.matrix_id.is_some() && self.is_waiting_for_data {
-                self.redraw(cx);
+                user_profile_cache::process_user_profile_updates(cx);
+                avatar_cache::process_avatar_updates(cx);
             }
         }
 

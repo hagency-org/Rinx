@@ -220,7 +220,6 @@ impl Widget for MentionablePopup {
 
         if !self.is_fully_drawn && matches!(event, Event::Signal) {
             process_avatar_updates(cx);
-            self.redraw(cx);
         }
 
         if let Event::Actions(actions) = event {
