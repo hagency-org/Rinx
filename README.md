@@ -6,6 +6,10 @@ A native Matrix messenger from [Upstream Labs](https://github.com/upstreamlabs),
 
 Rinx is an independent continuation of [`OctoSense-org/robrix2`'s `wechat-ui` branch](https://github.com/OctoSense-org/robrix2/tree/wechat-ui), starting at `16913e0c6f0397b4ed1272b7dcd421935521d5f3`. That branch's commit history is preserved here. Development now lives on this repository's **`main`** branch.
 
+## Homeserver history
+
+The sign-in server field shows recent homeservers when clicked or focused. Typing filters the list; choosing an entry fills the field, and Continue checks it again. Successful Matrix discovery records up to 20 deduplicated destinations, most recent first, in device-local `homeserver_history.json`. Existing saved login sessions seed the list on upgrade. The file contains server addresses only and retains history across restarts, even if login fails after server discovery.
+
 ## Features
 
 - Chats, Contacts, Discover, and Me, backed by Matrix messaging and encrypted rooms.

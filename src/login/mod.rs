@@ -1,6 +1,7 @@
 use makepad_widgets::ScriptVm;
 
 pub mod homeserver;
+mod server_history;
 pub mod login_screen;
 pub mod login_status_modal;
 

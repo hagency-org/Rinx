@@ -1,4 +1,5 @@
 use makepad_widgets::*;
+use makepad_widgets::makepad_platform::event::finger::TouchState;
 
 use crate::sliding_sync::{submit_async_request, LoginByPassword, LoginRequest, MatrixRequest};
 
@@ -112,6 +113,26 @@ script_mod! {
                                 autocorrect: Disabled
                                 content_type: Url
                                 input_mode: Url
+                            }
+                            server_history_container := View {
+                                visible: false
+                                width: Fill, height: Fit, flow: Down, spacing: 4
+                                Label {
+                                    width: Fill, height: Fit
+                                    draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                    text: #(crate::i18n::tr("Recent homeservers")) i18n_text: "Recent homeservers"
+                                }
+                                server_history_list := PortalList {
+                                    width: Fill, height: 40
+                                    History := View {
+                                        width: Fill, height: 40
+                                        history_server := RobrixNeutralIconButton {
+                                            width: Fill, height: 38, padding: 8
+                                            icon_walk: Walk{width: 0, height: 0}
+                                            text: ""
+                                        }
+                                    }
+                                }
                             }
                             Label {
                                 width: Fill, height: Fit
@@ -320,19 +341,65 @@ pub struct LoginScreen {
     #[rust] methods: Option<LoginMethods>,
     #[rust] password_form_open: bool,
     #[rust] registration_form_open: bool,
+    #[rust] history_rows: Vec<String>,
+    #[rust] history_open: bool,
+    #[rust] checked_server: String,
 
 }
 
 
 impl Widget for LoginScreen {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        let mut dismiss_history = false;
+        if self.history_open {
+            let input = self.view.text_input(cx, ids!(homeserver_input)).area().rect(cx);
+            let history = self.view.view(cx, ids!(server_history_container)).area().rect(cx);
+            let outside = |pos| !input.contains(pos) && !history.contains(pos);
+            let dismiss = match event {
+                Event::MouseUp(event) => outside(event.abs),
+                Event::TouchUpdate(event) => event.touches.iter().any(|touch| touch.state == TouchState::Stop && outside(touch.abs)),
+                Event::KeyDown(event) => event.key_code == KeyCode::Escape || event.key_code == KeyCode::Tab,
+                _ => false,
+            };
+            dismiss_history = dismiss;
+        }
         self.view.handle_event(cx, event, scope);
         self.match_event(cx, event);
+        // Collapse after delivering the release: changing layout on mouse-down
+        // would move Continue away before it could receive the click.
+        if dismiss_history { self.close_history(cx); }
+        // Reopen on a second click even if the field already owns focus.
+        let input_rect = self.view.text_input(cx, ids!(homeserver_input)).area().rect(cx);
+        let clicked_input = match event {
+            Event::MouseUp(event) => input_rect.contains(event.abs),
+            Event::TouchUpdate(event) => event.touches.iter().any(|touch| touch.state == TouchState::Stop && input_rect.contains(touch.abs)),
+            _ => false,
+        };
+        if clicked_input { self.open_history(cx); }
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        let mut history = self.view.portal_list(cx, ids!(server_history_list));
+        let height = self.history_rows.len().min(4).max(1) as f64 * 40.0;
+        if history.walk(cx).height != Size::Fixed(height) {
+            script_apply_eval!(cx, history, {height: #(height)});
+        }
+        self.view.view(cx, ids!(server_history_container)).set_visible(cx, self.history_open && !self.history_rows.is_empty());
+        let history_uid = history.widget_uid();
         while let Some(item) = self.view.draw_walk(cx, scope, walk).step() {
+            let is_history = item.widget_uid() == history_uid;
             if let Some(mut list) = item.borrow_mut::<PortalList>() {
+                if is_history {
+                    list.set_item_range(cx, 0, self.history_rows.len());
+                    while let Some(index) = list.next_visible_item(cx) {
+                        if let Some(server) = self.history_rows.get(index) {
+                            let row = list.item(cx, index, id!(History));
+                            row.button(cx, ids!(history_server)).set_text(cx, server.trim_end_matches('/'));
+                            row.draw_all(cx, scope);
+                        }
+                    }
+                    continue;
+                }
                 let providers = self.methods.as_ref().map(|m| m.providers.as_slice()).unwrap_or_default();
                 list.set_item_range(cx, 0, providers.len());
                 while let Some(index) = list.next_visible_item(cx) {
@@ -352,6 +419,29 @@ impl Widget for LoginScreen {
 }
 
 impl LoginScreen {
+    fn close_history(&mut self, cx: &mut Cx) {
+        self.history_open = false;
+        self.view.view(cx, ids!(server_history_container)).set_visible(cx, false);
+    }
+    fn open_history(&mut self, cx: &mut Cx) {
+        if self.discovery_pending || self.login_pending || self.methods.is_some() { return; }
+        match super::server_history::load(crate::app_data_dir()) {
+            Ok(entries) => {
+                let query = self.view.text_input(cx, ids!(homeserver_input)).text();
+                let rows = super::server_history::filtered(&entries, &query);
+                if self.history_rows != rows || !self.history_open {
+                    self.view.portal_list(cx, ids!(server_history_list)).set_first_id_and_scroll(0, 0.0);
+                }
+                self.history_rows = rows;
+                self.history_open = !self.history_rows.is_empty();
+                self.redraw(cx);
+            }
+            Err(error) => {
+                warning!("Could not read homeserver history: {error}");
+                self.close_history(cx);
+            }
+        }
+    }
     fn show_status(&mut self, cx: &mut Cx, title: &str, status: &str, button: &str, enabled: bool) {
         let content = self.view.login_status_modal(cx, ids!(login_status_modal.content));
         content.set_title(cx, title);
@@ -365,6 +455,7 @@ impl LoginScreen {
     fn reset_server(&mut self, cx: &mut Cx) {
         self.discovery_generation += 1;
         self.discovery_pending = false;
+        self.close_history(cx);
         self.methods = None;
         self.password_form_open = false;
         self.registration_form_open = false;
@@ -385,6 +476,8 @@ impl LoginScreen {
     }
 
     fn check_server(&mut self, cx: &mut Cx, server: String) {
+        self.close_history(cx);
+        self.checked_server = server.clone();
         self.discovery_generation += 1;
         let generation = self.discovery_generation;
         self.discovery_pending = true;
@@ -482,10 +575,27 @@ impl MatchEvent for LoginScreen {
         }
         if server_input.changed(actions).is_some() {
             self.reset_server(cx);
+            self.open_history(cx);
+        }
+        if actions.filter_widget_actions_cast::<TextInputAction>(server_input.widget_uid())
+            .any(|action| matches!(action, TextInputAction::KeyFocus)) {
+            self.open_history(cx);
+        }
+        let selected = self.view.portal_list(cx, ids!(server_history_list))
+            .items_with_actions(actions).into_iter().find_map(|(index, row)| {
+                row.button(cx, ids!(history_server)).clicked(actions)
+                    .then(|| self.history_rows.get(index).cloned()).flatten()
+            });
+        if let Some(server) = selected {
+            self.reset_server(cx);
+            server_input.set_text(cx, &server);
+            self.close_history(cx);
+            // Selection fills the field; Continue still revalidates the server.
         }
         if !self.login_pending && self.view.button(cx, ids!(edit_server_button)).clicked(actions) {
             self.reset_server(cx);
             server_input.set_key_focus(cx);
+            self.open_history(cx);
         }
         if !self.login_pending && !self.discovery_pending && (
             self.view.button(cx, ids!(continue_server_button)).clicked(actions)
@@ -582,7 +692,12 @@ impl MatchEvent for LoginScreen {
                 Some(LoginAction::ServerDiscovered { generation, result }) if *generation == self.discovery_generation => {
                     self.discovery_pending = false;
                     match result {
-                        Ok(methods) => self.show_methods(cx, methods.clone()),
+                        Ok(methods) => {
+                            if let Err(error) = super::server_history::remember(crate::app_data_dir(), &self.checked_server) {
+                                warning!("Could not save homeserver history: {error}");
+                            }
+                            self.show_methods(cx, methods.clone());
+                        },
                         Err(error) => self.view.label(cx, ids!(server_status)).set_text(cx, &crate::i18n::format("Could not check this server: {error}", &[("error", error.clone())])),
                     }
                 }
