@@ -55,20 +55,30 @@ The executable is `rinx`, and the macOS app is `Rinx.app`. HTML/CSS preview and 
 
 Rinx needs a Matrix homeserver supporting native Sliding Sync. Enter account credentials directly in the app. On Linux, install the native dependencies listed in the [inherited build guide](docs/robrix-upstream-readme.md#building--running-robrix-on-desktop); use `rinx` wherever that historical guide names the package or executable `robrix`. Mobile packaging scripts have been renamed for Rinx but require your own signing configuration and device validation.
 
-Windows is the same toolchain and the same command. Install Rust and CMake (the CMake installer, or `winget install Kitware.CMake`), then
+On Windows, install Rust with the MSVC toolchain, Visual Studio Build Tools with
+the **Desktop development with C++** workload and a Windows SDK, Git, and CMake
+(the CMake installer, or `winget install Kitware.CMake`). Then run:
 
 ```powershell
-git clone https://github.com/upstreamlabs/Rinx.git
+git clone https://github.com/hagency-org/rinx.git Rinx
 cd Rinx
 cargo run --locked --features agent_chat
 ```
 
-The executable is `rinx.exe`. The two differences from the Unix builds are the name of the kernel and where it has to sit: `python3 tools/package-octos.py desktop` builds `octos-x86_64-pc-windows-msvc.exe` and stages it under `dist/runtime/`, while Rinx looks for the kernel as **`octos.exe` beside `rinx.exe`** (or at `RINX_OCTOS_BIN`). A development `cargo run` therefore wants it beside the built executable, in the target directory. Without it, `Assistant (this device)` reports "no packaged assistant runtime" and nothing says the name is what differs.
+The executable is `rinx.exe`. The local assistant also needs its Octos kernel.
+With Python 3 installed, follow the [Windows runtime staging steps](packaging/README-octos.md#windows).
+On x86-64 MSVC, the helper builds `octos-x86_64-pc-windows-msvc.exe` under
+`dist/runtime/`; Rinx discovers it as **`octos.exe` beside `rinx.exe`** (or at
+`RINX_OCTOS_BIN`). Stage it beside the executable for the profile you run.
+Without it, `Assistant (this device)` reports "no packaged assistant runtime".
 
 Two things to expect once it is running:
 
-- **The kernel's console window takes the foreground**, and the Rinx window then receives no keystrokes until it is clicked again. A run that appears to ignore the keyboard is usually this.
-- **In a proxied shell, set `NO_PROXY=*`** for Rinx; otherwise its requests time out inside the app while the shell itself looks healthy.
+- A development kernel's console can take focus. If typing stops reaching Rinx
+  when it opens, click the Rinx window to restore focus.
+- If requests time out only in a proxied shell, check its proxy settings. When
+  direct access to your homeserver is intended, add that hostname to `NO_PROXY`
+  for the current PowerShell session (for example, `$env:NO_PROXY = "localhost,127.0.0.1,matrix.example.org"`).
 
 HTTP(S) link previews follow Robrix's native card implementation: the homeserver's
 `/_matrix/client/v1/media/preview_url` endpoint supplies the title, description,

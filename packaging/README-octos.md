@@ -41,7 +41,8 @@ whose version reports the pinned revision. It is not a cross-build option.
 
 ## Windows
 
-The desktop helper builds the same pinned kernel for the MSVC target: the
+Install Python 3 and the build prerequisites in the [build guide](../README.md#build-and-run).
+The desktop helper builds the same pinned kernel for the host target. On x86-64 MSVC, the
 artifact it reports under `dist/runtime/` is
 `octos-x86_64-pc-windows-msvc.exe`. Rinx discovers it as **`octos.exe` beside
 `rinx.exe`** (or at `RINX_OCTOS_BIN`), so a development staging copies it to
@@ -50,15 +51,18 @@ that name:
 ```powershell
 cargo build --profile fast
 python3 tools/package-octos.py desktop --app-binary target/fast/rinx.exe
+cargo run --profile fast
 ```
 
-There is no signing step, and the executable cargo builds is `rinx.exe`: for
+Use `python` instead of `python3` if that is your Python 3 command. Adjust
+`target/fast` if you use another Cargo profile or a custom `CARGO_TARGET_DIR`.
+The helper does not sign the Windows executable. The executable Cargo builds is `rinx.exe`: for
 `cargo run` to find the kernel it has to end up beside it, in the same target
 directory. Runtime staging stays below `dist/runtime/` here too, for the same
 reason as on macOS.
 
-The kernel starts a console window, and that window takes the foreground; the
-Rinx window then receives no keystrokes until it is focused again.
+The development kernel can open a console window and take focus; click the Rinx
+window if typing no longer reaches it.
 
 ## Android
 
