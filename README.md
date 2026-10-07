@@ -59,6 +59,31 @@ The executable is `rinx`, and the macOS app is `Rinx.app`. HTML/CSS preview and 
 
 Rinx needs a Matrix homeserver supporting native Sliding Sync. Enter account credentials directly in the app. On Linux, install the native dependencies listed in the [inherited build guide](docs/robrix-upstream-readme.md#building--running-robrix-on-desktop); use `rinx` wherever that historical guide names the package or executable `robrix`. Mobile packaging scripts have been renamed for Rinx but require your own signing configuration and device validation.
 
+On Windows, install Rust with the MSVC toolchain, Visual Studio Build Tools with
+the **Desktop development with C++** workload and a Windows SDK, Git, and CMake
+(the CMake installer, or `winget install Kitware.CMake`). Then run:
+
+```powershell
+git clone https://github.com/hagency-org/rinx.git Rinx
+cd Rinx
+cargo run --locked --features agent_chat
+```
+
+The executable is `rinx.exe`. The local assistant also needs its Octos kernel.
+With Python 3 installed, follow the [Windows runtime staging steps](packaging/README-octos.md#windows).
+On x86-64 MSVC, the helper builds `octos-x86_64-pc-windows-msvc.exe` under
+`dist/runtime/`; Rinx discovers it as **`octos.exe` beside `rinx.exe`** (or at
+`RINX_OCTOS_BIN`). Stage it beside the executable for the profile you run.
+Without it, `Assistant (this device)` reports "no packaged assistant runtime".
+
+Two things to expect once it is running:
+
+- A development kernel's console can take focus. If typing stops reaching Rinx
+  when it opens, click the Rinx window to restore focus.
+- If requests time out only in a proxied shell, check its proxy settings. When
+  direct access to your homeserver is intended, add that hostname to `NO_PROXY`
+  for the current PowerShell session (for example, `$env:NO_PROXY = "localhost,127.0.0.1,matrix.example.org"`).
+
 HTTP(S) link previews follow Robrix's native card implementation: the homeserver's
 `/_matrix/client/v1/media/preview_url` endpoint supplies the title, description,
 and thumbnail. The homeserver must permit URL previews. If Palpo returns
