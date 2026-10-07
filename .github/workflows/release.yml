@@ -54,6 +54,10 @@ on:
         required: false
         type: boolean
         default: false
+      notarize_macos:
+        description: 'Sign and notarize macOS with configured Apple credentials; otherwise label builds unnotarized'
+        type: boolean
+        default: false
       upload_testflight:
         description: "Upload to TestFlight (true/false)"
         type: boolean
@@ -88,14 +92,14 @@ jobs:
   check_tag_version:
     name: Check Release Tag and Cargo.toml Version Consistency
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' || github.event.inputs.create_release == 'true'
     steps:
       - uses: actions/checkout@v5
 
       - name: Check tag and Cargo.toml version
+        env:
+          REQUESTED_TAG: ${{ github.event.inputs.release_tag }}
         run: |
-          TAG_REF="${GITHUB_REF##*/}"
-          echo "Current tag: $TAG_REF"
 
           CARGO_MANIFEST_VERSION=$(cargo metadata --no-deps --format-version 1 --frozen | jq -r '.packages[] | select(.name=="rinx") | .version' | head -n1)
           if [[ -z "$CARGO_MANIFEST_VERSION" || "$CARGO_MANIFEST_VERSION" == "null" ]]; then
@@ -103,6 +107,11 @@ jobs:
             exit 1
           fi
           echo "Cargo.toml Rinx version: $CARGO_MANIFEST_VERSION"
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            TAG_REF="${GITHUB_REF##*/}"
+          else
+            TAG_REF="${REQUESTED_TAG:-v$CARGO_MANIFEST_VERSION}"
+          fi
 
           if [[ "$TAG_REF" != "v$CARGO_MANIFEST_VERSION" ]]; then
             echo "Error: Tag '$TAG_REF' does not match Cargo.toml version '$CARGO_MANIFEST_VERSION'."
@@ -172,6 +181,7 @@ jobs:
       ${{ always() && (
         (github.event_name == 'push' && needs.check_tag_version.result == 'success') ||
         (github.event_name == 'workflow_dispatch' &&
+          needs.check_tag_version.result == 'success' &&
           github.event.inputs.create_release == 'true' &&
           (
             needs.determine_matrices.outputs.run_linux == 'true' ||
@@ -224,7 +234,7 @@ jobs:
       - name: Refuse to reuse an existing release
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.RINX_RELEASE }}
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
         run: |
           TAG="${{ steps.resolve.outputs.tag }}"
           existing=$(gh api "repos/${{ github.repository }}/releases" --paginate \
@@ -265,6 +275,7 @@ jobs:
         id: create_release
         uses: softprops/action-gh-release@v3
         with:
+          target_commitish: ${{ github.sha }}
           tag_name: ${{ steps.resolve.outputs.tag }}
           name: ${{ steps.resolve.outputs.name }}
           body_path: ${{ steps.notes.outputs.body_path }}
@@ -272,19 +283,19 @@ jobs:
           ## anyone can download a half-built release. Publish it by hand.
           draft: true
           prerelease: ${{ (github.event_name == 'workflow_dispatch' && github.event.inputs.pre_release == 'true') || (github.event_name == 'push' && contains(github.ref, '-')) }}
-          token: ${{ secrets.RINX_RELEASE }}
+          token: ${{ secrets.RINX_RELEASE || github.token }}
 
       - name: Verify release access
         shell: bash
         run: |
           gh api "repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}" --jq '.id'
         env:
-          GH_TOKEN: ${{ secrets.RINX_RELEASE }}
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
 
   for_linux:
     name: Release Rinx for Linux (${{ matrix.os }}, ${{ matrix.arch }})
     needs: [check_tag_version, determine_matrices, create_release]
-    if: ${{ always() && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_linux == 'true')) }}
+    if: ${{ always() && needs.create_release.result == 'success' && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_linux == 'true')) }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.determine_matrices.outputs.linux_matrix) }}
@@ -322,7 +333,8 @@ jobs:
           CARGO_PACKAGER_SIGNING_KEY: ${{ secrets.CARGO_PACKAGER_SIGNING_KEY }}
           CARGO_PACKAGER_SIGNING_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGNING_PASSWORD }}
         with:
-          github_token: ${{ secrets.RINX_RELEASE }}
+          github_token: ${{ secrets.RINX_RELEASE || github.token }}
+          robius_packaging_commands_version: 0.4.1
           packager_formats: deb
           releaseId: ${{ needs.create_release.outputs.release_id }}
           ## Include the distro in asset names: the 22.04 and 24.04 legs produce
@@ -333,9 +345,8 @@ jobs:
           ## Depends, to catch runtime deps that static analysis can't see
           ## (dlopen'd libs like libEGL, spawned tools like xdg-open).
           verify_deb: true
-          ## TODO: flip to true once this has passed on all four Linux legs.
-          ## Until then it reports problems without blocking releases.
-          verify_strict: false
+          verify_deb_args: --binary-name rinx
+          verify_strict: true
           ## Nothing in Rinx consumes updater metadata, and .deb has no updater
           ## format mapping anyway, so latest.json would ship empty and misleading.
           uploadUpdaterJson: false
@@ -384,7 +395,8 @@ jobs:
           CARGO_PACKAGER_SIGNING_KEY: ${{ secrets.CARGO_PACKAGER_SIGNING_KEY }}
           CARGO_PACKAGER_SIGNING_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGNING_PASSWORD }}
         with:
-          github_token: ${{ secrets.RINX_RELEASE }}
+          github_token: ${{ secrets.RINX_RELEASE || github.token }}
+          robius_packaging_commands_version: 0.4.1
           packager_formats: appimage
           releaseId: ${{ needs.create_release.outputs.release_id }}
           ## No distro in the name, unlike the .deb above, since an AppImage
@@ -407,7 +419,8 @@ jobs:
           CARGO_PACKAGER_SIGNING_KEY: ${{ secrets.CARGO_PACKAGER_SIGNING_KEY }}
           CARGO_PACKAGER_SIGNING_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGNING_PASSWORD }}
         with:
-          github_token: ${{ secrets.RINX_RELEASE }}
+          github_token: ${{ secrets.RINX_RELEASE || github.token }}
+          robius_packaging_commands_version: 0.4.1
           packager_formats: pacman
           releaseId: ${{ needs.create_release.outputs.release_id }}
           asset_name_template: __FILENAME__
@@ -424,7 +437,7 @@ jobs:
       - name: Build and upload Arch Linux package
         if: (matrix.os == 'ubuntu-22.04' || matrix.os == 'ubuntu-22.04-arm') && needs.create_release.outputs.tag != ''
         env:
-          GH_TOKEN: ${{ secrets.RINX_RELEASE }}
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
           TAG: ${{ needs.create_release.outputs.tag }}
           ARCH: ${{ matrix.arch }}
         run: |
@@ -485,7 +498,7 @@ jobs:
   for_macos:
     name: Release Rinx for macOS (${{ matrix.os }}, ${{ matrix.arch }})
     needs: [check_tag_version, determine_matrices, create_release]
-    if: ${{ always() && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_macos == 'true')) }}
+    if: ${{ always() && needs.create_release.result == 'success' && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_macos == 'true')) }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.determine_matrices.outputs.macos_matrix) }}
@@ -498,10 +511,11 @@ jobs:
 
       - name: Install packaging tools
         run: |
-          cargo install cargo-packager --locked
-          cargo install robius-packaging-commands --locked
+          cargo install cargo-packager --version 0.11.8 --locked
+          cargo install robius-packaging-commands --version 0.4.1 --locked
 
       - name: Import Apple certificate
+        if: github.event.inputs.notarize_macos == 'true'
         uses: ./.github/actions/import-apple-cert
         with:
           certificate: ${{ secrets.APPLE_CERTIFICATE }}
@@ -510,6 +524,7 @@ jobs:
       # The script signs, notarizes, and staples the DMG itself, so there's
       # no separate notarize step. Mirrors running it locally.
       - name: Build, sign, notarize, and staple the DMG
+        if: github.event.inputs.notarize_macos == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -518,10 +533,14 @@ jobs:
           chmod +x ./packaging/build-macos-dmg.sh ./packaging/fix-dmg-applications-icon.sh
           ./packaging/build-macos-dmg.sh
 
+      - name: Build an explicitly unnotarized DMG
+        if: github.event.inputs.notarize_macos != 'true'
+        run: bash packaging/build-macos-adhoc.sh
+
       - name: Upload DMG to Release
         if: ${{ needs.create_release.outputs.release_id != '' }}
         env:
-          GH_TOKEN: ${{ secrets.RINX_RELEASE }}
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
         run: |
           DMG_FILE=$(find ./dist -name '*.dmg' -print -quit)
           gh release upload "${{ needs.create_release.outputs.tag }}" "$DMG_FILE" \
@@ -530,7 +549,7 @@ jobs:
   for_windows:
     name: Release Rinx for Windows (${{ matrix.os }}, ${{ matrix.arch }})
     needs: [check_tag_version, determine_matrices, create_release]
-    if: ${{ always() && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_windows == 'true')) }}
+    if: ${{ always() && needs.create_release.result == 'success' && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && needs.determine_matrices.outputs.run_windows == 'true')) }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.determine_matrices.outputs.windows_matrix) }}
@@ -547,7 +566,8 @@ jobs:
           CARGO_PACKAGER_SIGNING_KEY: ${{ secrets.CARGO_PACKAGER_SIGNING_KEY }}
           CARGO_PACKAGER_SIGNING_PASSWORD: ${{ secrets.CARGO_PACKAGER_SIGNING_PASSWORD }}
         with:
-          github_token: ${{ secrets.RINX_RELEASE }}
+          github_token: ${{ secrets.RINX_RELEASE || github.token }}
+          robius_packaging_commands_version: 0.4.1
           packager_formats: nsis
           releaseId: ${{ needs.create_release.outputs.release_id }}
           ## Same as the action's default naming, minus the `-release` mode suffix.
@@ -557,7 +577,7 @@ jobs:
   for_android:
     name: Release Rinx for Android (aarch64)
     needs: [check_tag_version, create_release]
-    if: ${{ always() && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_android_aarch64 == 'true')) }}
+    if: ${{ always() && needs.create_release.result == 'success' && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_android_aarch64 == 'true')) }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v5
@@ -577,34 +597,28 @@ jobs:
           python3 tools/package-octos.py android
           echo "MAKEPAD_ANDROID_EXTRA_LIBS=liboctos.so=$PWD/dist/runtime/octos-aarch64-linux-android" >> "$GITHUB_ENV"
 
-      - name: Package (android)
-        uses: project-robius/makepad-packaging-action@v1.8.0
+      # Use the tool installed from our pinned checkout. The generic action
+      # cannot recognize path-installed cargo-makepad and tries a broken reinstall.
+      - name: Build Android APK with the pinned tool
         env:
           AWS_LC_SYS_CMAKE_BUILDER: 1
-          MAKEPAD_ANDROID_FULL_NDK: true
-          ## Fat LTO takes ~7 MB off the apk and ~35 MB off the installed size.
-          ## Android release only, so desktop build times are unaffected.
-          MAKEPAD_MOBILE_CARGO_EXTRA_ARGS: >-
-            --config profile.release.lto=true
-            --config profile.release.codegen-units=1
-            --config profile.dev.opt-level=0
-            --config profile.dev.debug=false
-            --config profile.dev.lto=false
-            --config profile.dev.strip=true
-            --config profile.dev.debug-assertions=false
-        with:
-          github_token: ${{ secrets.RINX_RELEASE }}
-          args: --target aarch64-linux-android
-          app_name: Rinx
-          releaseId: ${{ needs.create_release.outputs.release_id }}
-          ## Same as the action's default naming, minus the `-release` mode suffix.
-          asset_name_template: __APP__-__VERSION__-__PLATFORM__-__ARCH__.__EXT__
-          uploadUpdaterJson: false
+        run: |
+          cargo makepad android --abi=aarch64 --package-name=org.octosense.rinx --app-label=Rinx \
+            build -p rinx --release --locked \
+            --config profile.release.lto=true --config profile.release.codegen-units=1
+          python3 packaging/collect-android-apk.py
+
+      - name: Upload Android APK
+        if: ${{ needs.create_release.outputs.release_id != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
+          RELEASE_TAG: ${{ needs.create_release.outputs.tag }}
+        run: gh release upload "$RELEASE_TAG" dist/Rinx-*-android-aarch64.apk --repo "$GITHUB_REPOSITORY"
 
   for_ios:
     name: Release Rinx for iOS
     needs: [check_tag_version, create_release]
-    if: ${{ always() && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_ios == 'true')) }}
+    if: ${{ always() && needs.create_release.result == 'success' && ((github.event_name == 'push' && needs.check_tag_version.result == 'success') || (github.event_name == 'workflow_dispatch' && github.event.inputs.build_ios == 'true')) }}
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
@@ -685,7 +699,7 @@ jobs:
       - name: Upload IPA to Release
         if: ${{ needs.create_release.outputs.release_id != '' }}
         env:
-          GH_TOKEN: ${{ secrets.RINX_RELEASE }}
+          GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
         run: |
           IPA_FILE=$(find target/apple/makepad-apple-app/aarch64-apple-ios/release -name '*.ipa' -print -quit)
           if [[ -z "$IPA_FILE" ]]; then

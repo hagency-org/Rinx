@@ -2,15 +2,15 @@
 name = "rinx"
 authors = ["OctoSense Contributors", "Kevin Boos <kevinaboos@gmail.com>", "Robius Project Maintainers"]
 description = "A native Matrix messenger with a WeChat-style UI, Moments, and scoped article mini apps."
-documentation = "https://github.com/upstreamlabs/Rinx#readme"
+documentation = "https://github.com/hagency-org/Rinx#readme"
 edition = "2024" ## mostly just to allow let-chains
-homepage = "https://github.com/upstreamlabs/Rinx"
+homepage = "https://github.com/hagency-org/Rinx"
 keywords = ["matrix", "chat", "client", "robius", "makepad"]
 license = "Apache-2.0"
 readme = "README.md"
 categories = ["gui"]
-repository = "https://github.com/upstreamlabs/Rinx"
-version = "1.1.0"
+repository = "https://github.com/hagency-org/Rinx"
+version = "1.2.0"
 metadata.makepad-auto-version = "zqpv-Yj-K7WNVK2I8h5Okhho46Q="
 
 [dependencies]
@@ -347,7 +347,7 @@ authors = [
 publisher = "Upstream Labs"
 license_file = "LICENSE"
 copyright = "Copyright 2023-2026, Project Robius"
-homepage = "https://github.com/upstreamlabs/Rinx"
+homepage = "https://github.com/hagency-org/Rinx"
 ### Note: there is an 80-character max for the one-line summary.
 description = "A native Matrix messenger derived from Robrix, with scoped mini apps"
 ### Note: there is an 80-character max for each line of the `long_description`.
