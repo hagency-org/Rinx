@@ -6,6 +6,79 @@ use makepad_widgets::makepad_platform::event::finger::TouchState;
 use serde_json::json;
 use std::{collections::BTreeMap, path::PathBuf, time::Instant};
 
+#[cfg(target_os = "android")]
+#[link(name = "android")]
+unsafe extern "C" {
+    fn ATrace_isEnabled() -> bool;
+    fn ATrace_beginSection(name: *const std::ffi::c_char);
+    fn ATrace_endSection();
+}
+
+/// Paired Android trace sections for a bounded, explicitly enabled capture.
+/// Keep the guard on the event thread, including through early returns.
+pub struct EventTrace {
+    #[cfg(target_os = "android")]
+    enabled: bool,
+    _same_thread: std::marker::PhantomData<*mut ()>,
+}
+
+impl EventTrace {
+    pub fn phase(&mut self, name: &'static std::ffi::CStr) {
+        #[cfg(target_os = "android")]
+        if self.enabled {
+            unsafe {
+                ATrace_endSection();
+                ATrace_beginSection(name.as_ptr());
+            }
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = name;
+    }
+}
+
+impl Drop for EventTrace {
+    fn drop(&mut self) {
+        #[cfg(target_os = "android")]
+        if self.enabled {
+            unsafe {
+                ATrace_endSection(); // Current phase.
+                ATrace_endSection(); // Event.
+            }
+        }
+    }
+}
+
+pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
+    #[cfg(target_os = "android")]
+    let enabled =
+        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    #[cfg(target_os = "android")]
+    if enabled {
+        let name = match event {
+            Event::Draw(_) => c"rinx.draw",
+            Event::NextFrame(_) => c"rinx.next_frame",
+            Event::Actions(_) => c"rinx.actions",
+            Event::Signal => c"rinx.signal",
+            Event::Timer(_) => c"rinx.timer",
+            Event::TextInput(_) => c"rinx.text_input",
+            Event::TouchUpdate(_) => c"rinx.touch",
+            Event::KeyDown(_) | Event::KeyUp(_) => c"rinx.key",
+            _ => c"rinx.other",
+        };
+        unsafe {
+            ATrace_beginSection(name.as_ptr());
+            ATrace_beginSection(c"rinx.prepare".as_ptr());
+        }
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = (cx, event);
+    EventTrace {
+        #[cfg(target_os = "android")]
+        enabled,
+        _same_thread: std::marker::PhantomData,
+    }
+}
+
 #[derive(Default)]
 struct Probe {
     active: bool,
