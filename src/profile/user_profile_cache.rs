@@ -356,6 +356,7 @@ impl From<CachedName> for Option<String> {
 /// This function requires passing in a reference to `Cx`,
 /// which acts as a guarantee that these thread-local caches are cleared on the main UI thread, 
 pub fn clear_user_profile_cache(_cx: &mut Cx) {
+    while PENDING_USER_PROFILE_UPDATES.pop().is_some() {}
     // Clear user profile cache
     USER_PROFILE_CACHE.with_borrow_mut(|cache| {
         cache.clear();

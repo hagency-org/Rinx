@@ -52,6 +52,14 @@ impl DerefMut for MediaCache {
 }
 
 impl MediaCache {
+    #[cfg(feature = "ux_fixtures")]
+    pub fn review_image(&mut self, uri: OwnedMxcUri, bytes: Arc<[u8]>) {
+        let entry = Arc::new(Mutex::new(MediaCacheEntry::Loaded(bytes)));
+        self.cache.insert(uri, MediaCacheValue {
+            full_file: Some(entry.clone()),
+            thumbnail: Some((entry, MediaThumbnailSettings::new(ruma::uint!(240), ruma::uint!(240)))),
+        });
+    }
     /// Creates a new media cache that will use the given media format
     /// when fetching media from the server.
     ///

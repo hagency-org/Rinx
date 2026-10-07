@@ -13,7 +13,8 @@ Rinx is an independent continuation of [`OctoSense-org/robrix2`'s `wechat-ui` br
 - Matrix-backed Moments, separate from self-DM file transfer.
 - A Markdown article editor with images, covers, themes, full preview, and publish/retract workflows.
 - Native HTML/CSS article previews through [makepad-html](https://github.com/OctoSense-org/makepad-html) and Blitz, rendered into Makepad without a WebView.
-- Mini-app consent scoped to the signed-in user, plus optional Hagency integration.
+- Mini-app consent scoped to the signed-in user, with a bundled Palpo app for Hagency connections, project and agent requests, and coordinator approvals.
+- Shared desktop and mobile settings, including appearance, language, account and privacy controls.
 
 The renderer remains experimental: grayscale/sepia filters have known failures; arbitrary WeChat HTML import and complete WeChat compatibility are not claimed. See the [integration evidence](lab/article-html-integration/README.md) and [mini-app authority design](docs/adr/0002-octoscript-mini-app-authority.md).
 
@@ -21,18 +22,36 @@ The renderer remains experimental: grayscale/sepia filters have known failures; 
 
 Rinx bundles native and OctoScript apps through `system-apps.json`. The native article editor lives under `apps/article-editor/`; both deployments share its catalog and host-service contracts. See the [app development guide](apps/README.md) and [ADR 0008](docs/adr/0008-rinx-system-app-catalog.md).
 
+## Hagency quick start
+
+Open **Mini apps → Palpo** (under **Discover** on mobile) using your current Matrix account. The Palpo app handles server engagement approvals, resources, projects and agents. Hagency runs separately on the machine with your signed-in Codex installation.
+
+1. In Hagency, request a **New server engagement** with the Matrix server address and existing resource-owner and coordinator accounts.
+2. Confirm it as the resource owner in Rinx's **Palpo → Inbox**, then approve it as the Palpo administrator. Hagency receives the configuration automatically; the owner clicks **Verify connection** and waits for **Connection verified**.
+3. In Hagency's **My resources → New resource configuration**, create resources for that engagement with a model, budget and eligible project managers. Each resource has one budget; no second pool allocation is needed.
+4. In Rinx, an eligible manager selects **Resources → Request project here**, then **Projects → Request agent** after project approval. The coordinator reviews both requests in the Palpo Inbox.
+5. Accept the agent's DM invitation when it appears, then wait for **Execution · ready** before sending a message. Owner DMs need no @mention; shared project rooms do.
+
+See the [Hagency quick-start guide](docs/hagency-quickstart.md) for roles, first-resource setup, existing project rooms, encryption and troubleshooting. [Agent-chat support](docs/agent-chat.md) describes the client protocol and developer checks.
+
+## Settings and appearance
+
+Desktop and mobile use the same **Settings** screen with **Account**, **Preferences**, **Privacy** and **About**. On mobile, open it from **Me → Settings**.
+
+Use **Settings → Preferences → App appearance** to choose light/dark appearance, follow the system where supported, change the accent, or open **Customize appearance**. Hosted Rinx may instead show **Appearance is managed by OctoSense**. The **Hagency** section in Preferences controls workflow-command suggestions; approval cards work with that toggle off.
+
 ## Build and run
 
 Install Rust and CMake. The repository pins Rust 1.98.0. On macOS:
 
 ```sh
 brew install cmake
-git clone https://github.com/upstreamlabs/Rinx.git
+git clone https://github.com/hagency-org/rinx.git Rinx
 cd Rinx
 cargo run --locked --features agent_chat
 ```
 
-The executable is `rinx`, and the macOS app is `Rinx.app`. HTML/CSS preview is enabled by default. Hagency is compiled with `agent_chat` and must also be enabled in Settings → Preferences.
+The executable is `rinx`, and the macOS app is `Rinx.app`. HTML/CSS preview and the `agent_chat` feature are enabled by default. **Settings → Preferences → Hagency** enables optional workflow-command suggestions, not the Palpo app or approval cards. Rinx does not start the Hagency service itself.
 
 Rinx needs a Matrix homeserver supporting native Sliding Sync. Enter account credentials directly in the app. On Linux, install the native dependencies listed in the [inherited build guide](docs/robrix-upstream-readme.md#building--running-robrix-on-desktop); use `rinx` wherever that historical guide names the package or executable `robrix`. Mobile packaging scripts have been renamed for Rinx but require your own signing configuration and device validation.
 
@@ -99,6 +118,10 @@ python3 tools/wechat-ux/check_i18n.py
 The main CI workflow builds and tests the native app and portable article core.
 The inherited multi-platform build and license-refresh workflows are available
 by manual dispatch; release signing and publishing require Rinx-specific secrets.
+
+## Multiple accounts
+
+Use the bottom-left account menu on desktop, or Settings → Account on mobile, to add accounts and switch between saved Matrix sessions. Only the selected account syncs. Switching retains each account's device and encryption database; logging out revokes only the selected account. Saved accounts are also available on the login screen. See [account flows and data isolation](docs/multi-account.md) for migration, storage boundaries, and experimental TSP limitations.
 
 ## Data and compatibility
 

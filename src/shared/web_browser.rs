@@ -66,7 +66,7 @@ script_mod! {
     use mod.widgets.*
 
     mod.widgets.WebBrowserIconButton = NavigationBarButton {
-        width: 36 height: 36 padding: 8
+        width: 44 height: 44 padding: 12
         draw_bg +: {color_hover: mod.widgets.RINX_FIELD color_active: mod.widgets.RINX_PRESSED border_radius: 6}
         icon := Icon {width: 20 height: 20 draw_icon.color: mod.widgets.RINX_INK}
     }
@@ -76,36 +76,40 @@ script_mod! {
         width: Fill height: Fill flow: Down
         draw_bg.color: mod.widgets.RINX_SURFACE
         padding: Inset{top: mod.widgets.SAFE_INSET_PAD_TOP + #(CAPTION_PADDING) bottom: mod.widgets.SAFE_INSET_PAD_BOTTOM}
-        web_tabs := TabBar {
-            height: 40
+        tab_strip := View {width: Fill height: 44 flow: Overlay
+          web_close := mod.widgets.WebBrowserIconButton {icon.draw_icon.svg: crate_resource("self://resources/icons/web_back.svg")}
+          web_tabs := TabBar {
+            width: Fill height: 44 margin: Inset{left: 44}
             draw_bg +: {color: mod.widgets.RINX_FIELD color_dither: 0 border_size: 0}
             draw_fill +: {color: mod.widgets.RINX_FIELD color_2: vec4(-1, -1, -1, -1) border_size: 0}
             CloseableTab := Tab {
-                closeable: true height: 40 margin: 0
+                closeable: true height: 44 margin: 0
                 padding: Inset{left: 10 right: 14 top: 0 bottom: 0}
                 draw_text +: {
                     color: mod.widgets.RINX_MUTED color_active: mod.widgets.RINX_INK color_hover: mod.widgets.RINX_INK
-                    text_style: theme.font_regular {font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}
+                    text_style: theme.font_regular {font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}
                 }
                 draw_bg +: {
                     color: mod.widgets.RINX_FIELD color_hover: mod.widgets.RINX_HOVER color_active: mod.widgets.RINX_SURFACE
                     color_2: vec4(-1, -1, -1, -1) border_size: 0 color_dither: 0
                 }
                 close_button +: {
-                    width: 18 height: 18 margin: Inset{right: 8 left: 0}
-                    draw_button +: {color: mod.widgets.RINX_MUTED color_hover: mod.widgets.RINX_INK}
+                    width: 44 height: 44 margin: 0
+                    draw_button +: {size: 0.7 color: mod.widgets.RINX_MUTED color_active: mod.widgets.RINX_MUTED color_hover: mod.widgets.RINX_INK}
                 }
             }
+          }
         }
         toolbar := View {
-            width: Fill height: 60 flow: Right spacing: 4 padding: Inset{left: 8 right: 8} align: Align{y: 0.5}
-            web_close := mod.widgets.WebBrowserIconButton {icon.draw_icon.svg: (ICON_CLOSE)}
+            width: Fill height: 52 flow: Right spacing: 0 padding: Inset{left: 8 right: 8} align: Align{y: 0.5}
             web_back := mod.widgets.WebBrowserIconButton {icon.draw_icon.svg: crate_resource("self://resources/icons/web_back.svg")}
             web_forward := mod.widgets.WebBrowserIconButton {icon.draw_icon.svg: crate_resource("self://resources/icons/web_forward.svg")}
             web_reopen := mod.widgets.WebBrowserIconButton {icon.draw_icon.svg: crate_resource("self://resources/icons/article_refresh.svg")}
-            address := View {
-                width: Fill height: Fit flow: Down spacing: 3 padding: Inset{left: 8 right: 8}
+            address := RoundedView {
+                width: Fill height: 36 flow: Down spacing: 0 padding: Inset{left: 12 right: 12} align: Align{y: 0.5}
+                draw_bg +: {color: mod.widgets.RINX_FIELD border_radius: 6}
                 web_title := Label {
+                    visible: false
                     width: Fill max_lines: 1 text_overflow: Ellipsis padding: 0
                     draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_bold {font_size: (13 * mod.widgets.RINX_TEXT_SCALE)}}
                 }
@@ -495,6 +499,9 @@ impl WebBrowser {
         let title = tab.title();
         let status = tab.status.clone();
         let is_web = url.is_some();
+        // Article titles already live in the tabs and scroll with their content.
+        // Keep browser navigation only for web pages; closing a document uses its tab.
+        self.view(cx, ids!(toolbar)).set_visible(cx, is_web);
         for path in [
             ids!(web_back),
             ids!(web_forward),
@@ -550,6 +557,18 @@ impl Widget for WebBrowser {
         }
         if self.tabs.is_empty() {
             return;
+        }
+        if let Event::KeyDown(key) = event {
+            if key.modifiers.is_primary() && key.key_code == KeyCode::KeyW {
+                if let Some(tab) = self.active() { let id = tab.id; self.close_tab(cx, id); }
+                return;
+            }
+            if key.modifiers.control && key.key_code == KeyCode::Tab {
+                let count = self.tabs.len();
+                let offset = if key.modifiers.shift { count - 1 } else { 1 };
+                self.select_tab(cx, (self.active_tab.unwrap_or(0) + offset) % count);
+                return;
+            }
         }
         let active = self.active().map(|tab| tab.id);
         let mut generated = cx.capture_actions(|cx| self.view.handle_event(cx, event, scope));

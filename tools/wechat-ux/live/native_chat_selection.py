@@ -8,6 +8,7 @@ import socket
 import subprocess
 import time
 import uuid
+from PIL import Image
 from native_probe import NativeApp
 
 PLAIN = "Alpha 中文 👩‍💻 bravo & <literal>\nSecond line has selectable words.\nThird line ends here."
@@ -17,9 +18,22 @@ WRAPPED = "Wrapped 中文 text crosses several visual lines without losing space
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, default=Path("target/debug/examples/chat_text_selection"))
+    parser.add_argument("--appearance", choices=("light", "dark"), default="light")
+    parser.add_argument("--accent", choices=("teal", "violet"), default="teal")
+    parser.add_argument("--palette", type=Path, help="Optional bundled or custom .octotheme file")
+    parser.add_argument("--narrow", action="store_true")
+    parser.add_argument("--blocks", action="store_true", help="Include quoted text and inline/fenced code in the visual check")
+    parser.add_argument("--visual-only", action="store_true", help="Check selected glyphs and native copy in both message renderers")
     args = parser.parse_args()
+    assert not args.blocks or args.visual_only, '--blocks requires --visual-only'
     root = Path("target/chat-selection-regressions") / uuid.uuid4().hex
     root.mkdir(parents=True)
+    profile = root / "profile"
+    profile.mkdir()
+    preferences = {"selection": {"appearance": args.appearance, "accent": args.accent},
+                   "follow_system": False,
+                   "package": json.loads(args.palette.read_text()) if args.palette else None}
+    (profile / "theme-state.json").write_text(json.dumps({"current": preferences, "previous": preferences}))
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]
@@ -28,9 +42,13 @@ def main():
     app.log = (app.output / "native.log").open("w")
     env = dict(os.environ, MAKEPAD_REMOTE=str(port), MAKEPAD_HIDE_WINDOWS="1", MAKEPAD_NO_FOCUS="1",
                RINX_DATA_DIR=str((root / "profile").resolve()), RAYON_NUM_THREADS="1")
-    app.process = subprocess.Popen([str(args.binary.resolve())], env=env, stdin=subprocess.DEVNULL,
+    app.process = subprocess.Popen([str(args.binary.resolve()), *(["--narrow"] if args.narrow else []),
+                                    *(["--blocks"] if args.blocks else [])], env=env, stdin=subprocess.DEVNULL,
                                    stdout=app.log, stderr=subprocess.STDOUT)
-    report = {"passed": False, "checks": []}
+    report = {"passed": False, "checks": [], "appearance": args.appearance,
+              "accent": args.accent,
+              "palette": str(args.palette) if args.palette else "Rinx", "narrow": args.narrow,
+              "visual_only": args.visual_only, "blocks": args.blocks}
     try:
         for _ in range(80):
             if app.process.poll() is not None:
@@ -43,7 +61,27 @@ def main():
             time.sleep(.25)
         app.wait_text("Ready")
         # Flush the first native layout before using widget coordinates.
-        app.capture("ready")
+        app.capture("startup-frame")
+
+        def readable(path, rect, s):
+            # Inspect the actual GPU frame. Selection/copy state can be correct
+            # while an opaque quad hides every glyph (the original regression).
+            original = Image.open(baseline).convert("RGB")
+            selected = Image.open(path).convert("RGB")
+            scale = original.width / app.request("/s")["w"][0]["sz"][0]
+            x, y, width, height = rect
+            crop = tuple(round(v * scale) for v in (x, y, x + width, y + height))
+            before = list(original.crop(crop).getdata())
+            after = list(selected.crop(crop).getdata())
+            rgb = lambda value: tuple((value >> shift) & 255 for shift in (16, 8, 0))
+            close = lambda a, b: max(abs(x - y) for x, y in zip(a, b)) <= 8
+            ink, highlight = rgb(s["ink"]), rgb(s["selection_color"])
+            glyphs = [i for i, pixel in enumerate(before) if close(pixel, ink)]
+            assert len(glyphs) >= 20, ("No baseline glyph pixels", rect, ink)
+            retained = sum(close(after[i], ink) for i in glyphs) / len(glyphs)
+            assert retained >= .95, ("Selection obscures glyphs", retained, path)
+            assert sum(close(pixel, highlight) for pixel in after) > 20, ("Missing selection highlight", path)
+            report.setdefault("selected_glyphs", []).append({"capture": str(path), "retained": retained})
 
         def state():
             app.click_id("inspect")
@@ -62,10 +100,45 @@ def main():
         line = py + 11
         link = ry + 41
 
+        # A hidden window can expose its widget tree before the first complete
+        # GPU frame (especially during concurrent builds). Establish that both
+        # unselected words are rendered before comparing their selected pixels.
+        initial_state = state()
+        ink = tuple((initial_state["ink"] >> shift) & 255 for shift in (16, 8, 0))
+        scale = app.request("/s")["w"][0]["px"][0] / app.request("/s")["w"][0]["sz"][0]
+        for attempt in range(8):
+            baseline = app.capture("ready")
+            pixels = Image.open(baseline).convert("RGB")
+            visible = []
+            for x, y in ((px, py), (rx, ry)):
+                region = pixels.crop(tuple(round(v * scale) for v in (x, y, x + 36, y + 27)))
+                visible.append(sum(max(abs(a - b) for a, b in zip(pixel, ink)) <= 8
+                                   for pixel in region.getdata()) >= 20)
+            if all(visible):
+                break
+            time.sleep(.2)
+        else:
+            raise AssertionError("Unselected baseline glyphs never rendered")
+
+        if args.visual_only:
+            for name, rect in (("plain", plain), ("rich", rich)):
+                x, y, _, _ = rect
+                app.click(x + 5, y + 14)
+                app.request("/k", c="A", cmd=1, wait=1)
+                s = state()
+                assert s[name] and s["copy"] == s[name], s
+                if name == "plain":
+                    assert s[name] == PLAIN, s
+                readable(app.capture(name + "-selected-readable"), rect if args.blocks else (x, y, 36, 27), s)
+            report["checks"].append("plain_and_rich_selected_glyphs_remain_visible_and_native_copy_matches")
+            report["passed"] = True
+            return
+
         drag([(px, line), (px + 38, line)])
         s = state()
         assert s["plain"] == s["copy"] == "Alpha", s
-        app.capture("plain-partial-selection")
+        readable(app.capture("plain-partial-selection"), (px, py, 36, 27), s)
+        report["checks"].append("plain_selection_highlight_is_behind_glyphs")
         drag([(px + 38, line), (px, line)])
         assert state()["copy"] == "Alpha"
         report["checks"].append("forward_reverse_partial_plaintext_and_native_copy")
@@ -87,6 +160,8 @@ def main():
         drag([(rx, ry + 14), (rx + 60, ry + 14), (rx + 240, ry + 14)])
         s = state()
         assert s["plain"] == "" and "bold 中文" in s["rich"] and "italic words" in s["copy"], s
+        readable(app.capture("rich-selected-readable"), (rx, ry, 36, 27), s)
+        report["checks"].append("rich_selection_highlight_is_behind_glyphs")
         report["checks"].append("rich_text_cross_style_selection_and_focus_transfer")
 
         drag([(rx + 1, link), (rx + 50, link), (rx + 120, link), (rx + 240, link)])
@@ -160,9 +235,7 @@ def main():
         report["checks"].append("replacement_clears_selection_and_hides_partial_copy")
         report["passed"] = True
     finally:
-        app.process.terminate()
-        app.process.wait(timeout=10)
-        app.log.close()
+        app.stop()
         (root / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
         (root / "trace.json").write_text(json.dumps(app.trace, ensure_ascii=False, indent=2))
         print(json.dumps({"report": str(root / "report.json"), **report}, ensure_ascii=False))

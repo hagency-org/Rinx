@@ -169,7 +169,8 @@ def main():
         assert first["images"] and all(i["complete"] and i["width"] > 0 for i in first["images"])
         assert first["viewportWidth"] > 500 and first["viewportHeight"] > 300
         window_height = next(w["sz"][1] for w in app.request("/s")["w"] if w["i"] == app.window)
-        assert first["viewportHeight"] > window_height - 150, first
+        fixture_height = next(w['r'][3] for w in app.snap() if w['i'] == 'fixture_controls')
+        assert first["viewportHeight"] > window_height - fixture_height - 150, first
         report["checks"].append("chat_link_opens_embedded_webkit_with_redirect_css_javascript_and_image")
         # Font atlas uploads may need another frame after the first native draw.
         time.sleep(.5)
@@ -177,7 +178,7 @@ def main():
         controls = {w["i"]: w for w in app.request("/snap", all=1)["s"]
                     if w["i"] in {"web_close", "web_back", "web_forward", "web_reopen", "web_external"}}
         assert len(controls) == 5, controls
-        assert all(w["r"][2:] == [36, 36] and not w.get("t") for w in controls.values()), controls
+        assert all(w["r"][2:] == [44, 44] and not w.get("t") for w in controls.values()), controls
         report["checks"].append("five_svg_toolbar_controls_have_consistent_hit_areas_without_text_buttons")
         x, y, width, height = controls["web_back"]["r"]
         app.request("/m", x=x + width / 2, y=y + height / 2, k="move", wait=1)

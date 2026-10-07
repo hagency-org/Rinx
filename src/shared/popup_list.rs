@@ -553,6 +553,12 @@ impl RobrixPopupNotification {
 
 impl WidgetMatchEvent for RobrixPopupNotification {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions, _scope: &mut Scope) {
+        if actions.iter().any(|a| matches!(a.downcast_ref(), Some(crate::logout::logout_confirm_modal::LogoutAction::ClearAppState { .. }))) {
+            while PENDING_POPUP_NOTIFICATIONS.pop().is_some() {}
+            for popup in self.popups.drain(..) { cx.stop_timer(popup.close_timer); }
+            self.redraw_overlay(cx);
+            return;
+        }
         for (i, popup) in self.popups.iter_mut().enumerate() {
             if popup.view.button(cx, ids!(close_button)).clicked(actions) {
                 cx.stop_timer(popup.close_timer);

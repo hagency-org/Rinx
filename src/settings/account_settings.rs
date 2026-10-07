@@ -185,6 +185,11 @@ script_mod! {
             }
         }
 
+        accounts_heading := SubsectionLabel {
+            text: #(crate::i18n::tr("Saved Accounts")) i18n_text: "Saved Accounts"
+        }
+        account_list := mod.widgets.AccountList {}
+
         SubsectionLabel {
             text: #(crate::i18n::tr("Your Display Name")) i18n_text: "Your Display Name"
         }
@@ -938,11 +943,12 @@ pub enum AccountSettingsAction {
 
 /// Use the same picker, validation, and upload confirmation on both layouts.
 pub(crate) fn pick_profile_photo() {
+    let epoch = crate::account_session::epoch();
     handle_picker_launch_errors(
         robius_file_picker::FileDialog::new()
             .add_filter("Images", utils::AVATAR_IMAGE_EXTENSIONS)
             .set_media_representation(robius_file_picker::MediaRepresentation::Compatible)
-            .pick_image(|result| handle_picked_file(result, validate_avatar_image))
+            .pick_image(move |result| handle_picked_file(epoch, result, validate_avatar_image))
     );
 }
 

@@ -1,0 +1,19 @@
+{
+  "source_repository": "octoscode-app",
+  "source_revision": "09a79f68d612fe55376fcd9b49a8c5f7a944a8e2",
+  "source_file": "crates/octoscode-module/src/screens/theme.rs",
+  "source_sha256": "f7d14eb4f45ef91886215448c6387d1e0f96eadf9be74e23670da4b1b3219e45",
+  "palettes": [
+    "CODEX",
+    "CLAUDE",
+    "SLATE",
+    "SOLARIZED"
+  ],
+  "adaptation": [
+    "Original dark palettes are preserved in variants.dark; Rinx-authored light counterparts are in variants.light. Palette selection preserves Light/Dark/System mode.",
+    "Source alt is the panel/incoming bubble; accent_tint is the outgoing bubble/selected state.",
+    "Source contrast-tuned accent_text is Rinx primary action, which also styles text links.",
+    "Source text inks are retained; warning uses highlight on surface. Platform fonts, dimensions and icons remain inherited.",
+    "Light variants use opaque coordinated page, white/cream incoming bubbles and tinted outgoing bubbles with >=4.5:1 primary/secondary text contrast and >=1.15:1 separation between chat fills."
+  ]
+}

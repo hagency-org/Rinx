@@ -630,6 +630,20 @@ impl WidgetMatchEvent for MainDesktopUI {
                 continue;
             }
 
+            if let Some(crate::logout::logout_confirm_modal::LogoutAction::ClearAppState { .. }) = action.downcast_ref() {
+                let dock = self.view.dock(cx, ids!(dock));
+                for (tab, room) in self.open_rooms.drain() {
+                    room.close_thread_timeline(cx);
+                    dock.close_tab(cx, tab);
+                }
+                self.room_order.clear();
+                self.most_recently_selected_room = None;
+                self.selected_space = None;
+                self.drawn_previously = false;
+                dock.select_tab(cx, id!(home_tab));
+                self.redraw(cx);
+                continue;
+            }
             if let Some(MainDesktopUiAction::CloseAllTabs { on_close_all }) = action.downcast_ref() {
                 self.close_all_tabs(cx);
                 on_close_all.notify_one();

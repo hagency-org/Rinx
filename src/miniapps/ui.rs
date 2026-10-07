@@ -19,6 +19,17 @@ use std::{
     time::{Duration, Instant},
 };
 
+const HAGENCY_CONSENT: &str = "Hagency uses your current Matrix account.\nAllow it to read your projects and requests, submit work, and perform fleet or approval actions only where your server permits.\nConfiguration downloads use Rinx's file picker. Passwords and tokens stay outside the app.\nRun remembers consent for this account and this exact bundled version.";
+
+// Mirror the server's existing-room eligibility for useful choices; Palpo
+// re-fetches the authoritative state under the caller's identity on submission.
+fn eligible_project_room(room: &matrix_sdk::Room, account: &ruma::UserId) -> bool {
+    !room.is_space()
+        && !room.encryption_state().is_encrypted()
+        && room.join_rule() == Some(ruma::events::room::join_rules::JoinRule::Invite)
+        && room.create_content().is_some_and(|c| c.creator == account)
+}
+
 #[derive(Clone, Debug)]
 pub enum MiniAppsAction {
     Open,
@@ -26,6 +37,11 @@ pub enum MiniAppsAction {
     OpenReviewed,
     /// Untrusted notification routing hint; backend authorization remains mandatory.
     OpenPalpo(String),
+    /// Resolved by Palpo's account worker; host navigation never emits a verdict.
+    OpenSignupApproval(super::palpo::SignupApprovalTarget),
+    /// Server-resolved ready agent in a project room joined by this account.
+    OpenAgentChat(super::palpo::AgentChatTarget),
+    OpenActionsRoom(super::palpo::ActionsRoomTarget),
     Close,
 }
 script_mod! {
@@ -45,7 +61,12 @@ script_mod! {
             catalog_list := PortalList {width: Fill height: Fill
                 App := RoundedView {width: Fill height: 104 padding: 16 spacing: 12 flow: Right align: Align{y: 0.5}
                     draw_bg +: {color: RINX_SURFACE border_color: RINX_BORDER border_size: 1 border_radius: theme.corner_radius}
-                    Icon {width: 28 height: 28 draw_icon +: {svg: ICON_EDIT color: RINX_ACCENT}}
+                    article_icon := View {width: Fit height: Fit
+                        Icon {width: 28 height: 28 draw_icon +: {svg: ICON_FILE color: RINX_ACCENT}}
+                    }
+                    operations_icon := View {visible: false width: Fit height: Fit
+                        Icon {width: 28 height: 28 draw_icon +: {svg: ICON_SQUARES color: RINX_ACCENT}}
+                    }
                     copy := View {width: Fill height: Fit flow: Down spacing: 6
                         name := RinxLabel {width: Fill draw_text.text_style: theme.font_bold{font_size: (13 * mod.widgets.RINX_TEXT_SCALE)}}
                         subtitle := RinxHint {width: Fill text: ""}
@@ -60,7 +81,9 @@ script_mod! {
             bundle_path := View {width: Fill height: Fit
                 path := TextInput {width: Fill empty_text: "OctoSense bundle folder"}
             }
-            room := TextInput {width: Fill empty_text: "Room ID to allow (optional)"}
+            room_access := View {width: Fill height: Fit
+                room := TextInput {width: Fill empty_text: "Room ID to allow (optional)"}
+            }
             assistant_status := Label {width: Fill draw_text.color: mod.widgets.RINX_MUTED text: ""}
             core := View {width: Fill height: Fit flow: Down spacing: 6
                 local_family := TextInput {width: Fill empty_text: "Assistant on this device: provider (e.g. deepseek)"}
@@ -78,16 +101,24 @@ script_mod! {
             }
             buttons := View {width: Fill height: Fit spacing: 8
                 review := RinxButton {text: "Review bundle"}
-                run := RinxButton {text: "Run"}
+                run := RinxButton {text: #(crate::i18n::tr("Run")) i18n_text: "Run"}
             }
         }
-        notice := Label {width: Fill height: Fit draw_text.color: mod.widgets.RINX_INK text: ""}
+        notice := RinxLabel {width: Fill height: Fit flow: Flow.Right{wrap: true} text: ""}
         approval := View {visible: false width: Fill height: Fit flow: Down spacing: 8
-            details := Label {width: Fill draw_text.color: mod.widgets.RINX_INK}
+            details := RinxLabel {width: Fill flow: Flow.Right{wrap: true}}
             buttons := View {width: Fill height: Fit spacing: 8
-                allow := RinxButton {text: "Allow once"}
-                deny := RinxButton {text: "Deny"}
+                allow := RinxButton {text: #(crate::i18n::tr("Allow once")) i18n_text: "Allow once"}
+                deny := RinxButton {text: #(crate::i18n::tr("Deny")) i18n_text: "Deny"}
             }
+        }
+        project_room_picker := View {visible: false width: Fill height: Fill flow: Down spacing: 12
+            RinxPageTitle {text: #(crate::i18n::tr("Choose a project room")) i18n_text: "Choose a project room"}
+            RinxHint {width: Fill flow: Flow.Right{wrap: true} text: #(crate::i18n::tr("Choose a private, unencrypted room you created. Submitting the project will invite its Hagency representative. Rinx shares only your selected room with Hagency.")) i18n_text: "Choose a private, unencrypted room you created. Submitting the project will invite its Hagency representative. Rinx shares only your selected room with Hagency."}
+            rooms := DropDown {width: Fill labels: [#(crate::i18n::tr("Choose a room"))] popup_menu +: {width: 280}}
+            selected_room := RinxHint {width: Fill flow: Flow.Right{wrap: true} text: ""}
+            use_room := RinxPrimaryButton {text: #(crate::i18n::tr("Use this room")) i18n_text: "Use this room"}
+            cancel_room := RinxButton {text: #(crate::i18n::tr("Cancel")) i18n_text: "Cancel"}
         }
         app_content := View {visible: false width: Fill height: Fill
             card := Splash {width: Fill height: Fill}
@@ -101,6 +132,7 @@ struct Pending {
     receiver: Receiver<ServiceEvent>,
     started: Instant,
     turn: bool,
+    navigation: Option<super::palpo::PalpoNavigation>,
 }
 struct Approval {
     id: String,
@@ -133,6 +165,8 @@ pub struct MiniAppsPanel {
     #[rust]
     palpo_action: Option<String>,
     #[rust]
+    board: Option<super::palpo::ActionsRoomTarget>,
+    #[rust]
     octos_unavailable: Option<String>,
     #[rust]
     tag: String,
@@ -145,6 +179,10 @@ pub struct MiniAppsPanel {
     #[rust]
     approvals: VecDeque<Approval>,
     #[rust]
+    project_room_reply: Option<(usize, u64)>,
+    #[rust]
+    project_rooms: Vec<(String, String)>,
+    #[rust]
     assets: Option<AssetServer>,
     #[rust]
     theme_revision: u64,
@@ -152,6 +190,8 @@ pub struct MiniAppsPanel {
     restyle_card: bool,
     #[rust]
     notice_text: String,
+    #[rust]
+    reply_redraw: NextFrame,
 }
 impl ScriptHook for MiniAppsPanel {
     fn on_after_apply(&mut self, vm: &mut ScriptVm, _apply: &Apply, _scope: &mut Scope, _value: ScriptValue) {
@@ -163,12 +203,23 @@ impl ScriptHook for MiniAppsPanel {
             let cx = vm.cx_mut();
             self.view.widget(cx, ids!(library)).set_visible(cx, self.showing_hub);
             self.view.view(cx, ids!(catalog)).set_visible(cx, self.showing_catalog);
-            self.view.view(cx, ids!(header)).set_visible(cx, !self.showing_hub);
+            self.view.view(cx, ids!(header)).set_visible(cx, !self.showing_hub && self.board.is_none());
             let app = !self.showing_hub && !self.showing_catalog;
-            self.view.view(cx, ids!(app_content)).set_visible(cx, app);
+            self.view.view(cx, ids!(app_content)).set_visible(cx, app && self.project_room_reply.is_none());
+            self.view.view(cx, ids!(project_room_picker)).set_visible(cx, self.project_room_reply.is_some());
+            if self.project_room_reply.is_some() {
+                let dropdown = self.view.drop_down(cx, ids!(project_room_picker.rooms));
+                let selected = dropdown.selected_item();
+                let mut labels = vec![crate::i18n::tr("Choose a room").to_owned()];
+                labels.extend(self.project_rooms.iter().map(|(name,_)| name.clone()));
+                dropdown.set_labels(cx, labels);
+                dropdown.set_selected_item(cx, selected);
+                self.present_selected_room(cx, selected);
+            }
             self.view.view(cx, ids!(import_form)).set_visible(cx, app && self.lease.is_none());
-            self.view.label(cx, ids!(notice)).set_text(cx, &self.notice_text);
-            self.view.view(cx, ids!(import_form.core)).set_visible(cx, !crate::octos_service::is_hosted() && self.package.as_ref().and_then(Package::builtin_id) != Some(super::palpo::APP_ID));
+            self.view.label(cx, ids!(notice)).set_text(cx, if self.notice_text == HAGENCY_CONSENT { crate::i18n::tr(HAGENCY_CONSENT) } else { &self.notice_text });
+            self.view.widget(cx, ids!(notice)).set_visible(cx, self.board.is_none() || !self.notice_text.is_empty());
+            self.present_review_controls(cx);
             let imported = self.package.as_ref().and_then(Package::builtin_id).is_none();
             self.view.view(cx, ids!(bundle_path)).set_visible(cx, imported);
             self.show_approval(cx);
@@ -225,6 +276,10 @@ impl MiniAppsPanel {
     }
     // Returns true only at the outer catalog, where Back closes the modal.
     fn navigate_back(&mut self, cx: &mut Cx) -> bool {
+        if self.project_room_reply.is_some() {
+            self.finish_room_picker(cx, false);
+            return false;
+        }
         if self.showing_hub {
             if !self.view.mini_app_library(cx, ids!(library)).back_to_list(cx) {
                 self.show_catalog(cx);
@@ -249,7 +304,7 @@ impl MiniAppsPanel {
         let imported = self.package.as_ref().and_then(Package::builtin_id).is_none();
         self.view.view(cx, ids!(bundle_path)).set_visible(cx, imported);
         self.show_assistant_status(cx);
-        self.view.view(cx, ids!(import_form.core)).set_visible(cx, !crate::octos_service::is_hosted() && self.package.as_ref().and_then(Package::builtin_id) != Some(super::palpo::APP_ID));
+        self.present_review_controls(cx);
     }
     fn open_builtin(&mut self, cx: &mut Cx, index: usize) -> Result<(), String> {
         let app = crate::system_apps::apps().get(index).ok_or("Unknown built-in app")?;
@@ -275,9 +330,13 @@ impl MiniAppsPanel {
 
     fn notice(&mut self, cx: &mut Cx, message: &str) {
         self.notice_text = message.to_owned();
-        self.view.label(cx, ids!(notice)).set_text(cx, message);
+        self.view.label(cx, ids!(notice)).set_text(cx, if message == HAGENCY_CONSENT { crate::i18n::tr(HAGENCY_CONSENT) } else { message });
+        self.view.widget(cx, ids!(notice)).set_visible(cx, self.board.is_none() || !message.is_empty());
     }
     fn stop(&mut self, cx: &mut Cx) {
+        self.project_room_reply = None;
+        self.project_rooms.clear();
+        self.view.view(cx, ids!(project_room_picker)).set_visible(cx, false);
         if let Some(lease) = self.lease.take() {
             lease.revoke();
             if let Some(provider) = self.provider.take() {
@@ -295,6 +354,9 @@ impl MiniAppsPanel {
     }
     /// What the assistant's `status` and `open_mini_app` see of this screen.
     fn publish_to_assistant(&self) {
+        // A room projection does not replace the user's separately reviewed app
+        // or the assistant's foreground app context.
+        if self.board.is_some() { return; }
         let reviewed = self.package.as_ref().map(|package| crate::assistant::ReviewedApp {
             id: package.manifest.id.clone(),
             name: package.manifest.name.clone(),
@@ -312,6 +374,15 @@ impl MiniAppsPanel {
         self.view
             .view(cx, ids!(approval))
             .set_visible(cx, !self.approvals.is_empty());
+    }
+    fn present_review_controls(&mut self, cx: &mut Cx) {
+        let palpo = self.package.as_ref().and_then(Package::builtin_id) == Some(super::palpo::APP_ID);
+        // TextInput has no visibility property. Hide its containing View so
+        // unrelated room grants cannot appear in Palpo's host consent screen.
+        self.view.view(cx, ids!(import_form.room_access)).set_visible(cx, !palpo);
+        self.view.label(cx, ids!(import_form.assistant_status)).set_visible(cx, !palpo);
+        self.view.view(cx, ids!(import_form.core)).set_visible(cx, !palpo && !crate::octos_service::is_hosted());
+        self.view.button(cx, ids!(import_form.buttons.review)).set_visible(cx, !palpo);
     }
     fn show_assistant_status(&mut self, cx: &mut Cx) {
         let status = crate::octos_service::status();
@@ -387,16 +458,13 @@ impl MiniAppsPanel {
         self.view.view(cx, ids!(bundle_path)).set_visible(cx, imported);
         self.review_notice = format!("{} {} · {}\nServices: {}\nAllowed room: {}\nRun grants these services for this session. Octos turns may use the connected core's tools.",package.manifest.name,package.manifest.version,origin,services,if room.trim().is_empty(){"None"}else{room.trim()});
         if package.builtin_id() == Some(super::palpo::APP_ID) {
-            self.review_notice = "Palpo uses your current Matrix account.\nAllow it to read your projects and requests, submit work, and perform fleet or approval actions only where your server permits.\nConfiguration downloads use Rinx's file picker. Passwords and tokens stay outside the app.\nRun remembers consent for this account and this exact bundled version.".into();
-            self.view.view(cx, ids!(import_form.core)).set_visible(cx, false);
-            self.view.text_input(cx, ids!(import_form.room)).set_visible(cx, false);
-        } else {
-            self.view.text_input(cx, ids!(import_form.room)).set_visible(cx, true);
+            self.review_notice = HAGENCY_CONSENT.into();
         }
         let notice = self.review_notice.clone();
         self.notice(cx, &notice);
         self.reviewed_room = room.trim().to_string();
         self.package = Some(package);
+        self.present_review_controls(cx);
         self.publish_to_assistant();
         Ok(())
     }
@@ -420,6 +488,7 @@ impl MiniAppsPanel {
                     .to_string(),
             )
         };
+        let room = self.board.as_ref().map(|target| target.room_id.to_string()).or(room);
         static GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let generation = GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let lease = super::AUTHORITY.issue(
@@ -434,7 +503,8 @@ impl MiniAppsPanel {
             Instant::now() + Duration::from_secs(3600),
         );
         self.palpo = if package.manifest.capabilities.iter().any(|c| octosense_app_contract::palpo::SERVICES.contains(&c.as_str())) {
-            Some(super::palpo::PalpoHost::new(package.manifest.integrity.bundle_blake3.clone())?.with_action(self.palpo_action.take()))
+            Some(super::palpo::PalpoHost::new(package.manifest.integrity.bundle_blake3.clone())?
+                .with_action(self.palpo_action.take()).with_board(self.board.clone()))
         } else { None };
         if package.builtin_id() == Some(super::palpo::APP_ID) {
             super::consent::remember(&account, &package.manifest.integrity.bundle_blake3)?;
@@ -494,6 +564,10 @@ impl MiniAppsPanel {
             cx,
             "Running · Back closes this app and revokes its services.",
         );
+        if self.board.is_some() {
+            self.view.view(cx, ids!(header)).set_visible(cx, false);
+            self.notice(cx, "");
+        }
         Ok(())
     }
     fn render(&mut self, cx: &mut Cx) -> Result<(), String> {
@@ -538,6 +612,65 @@ impl MiniAppsPanel {
         self.view.splash(cx, ids!(card)).reapply_text(cx, &body);
         Ok(())
     }
+    fn begin_room_picker(&mut self, cx: &mut Cx, args: Value, reply: (usize, u64)) -> Result<(), String> {
+        if args != json!({}) || self.project_room_reply.is_some() {
+            return Err("A room selection is already open or the request is invalid".into());
+        }
+        let account = crate::sliding_sync::current_user_id().ok_or("Not logged in")?;
+        let lease = self.lease.as_ref().ok_or("Mini app is closed")?;
+        lease.authorize(account.as_str(), "palpo.projects.select_room", None)?;
+        if lease.identity().app != super::palpo::APP_ID {
+            return Err("Room selection belongs to the Hagency app".into());
+        }
+        let client = crate::sliding_sync::get_client().ok_or("Not logged in")?;
+        self.project_rooms = client.joined_rooms().into_iter().filter(|r| eligible_project_room(r, account.as_ref())).map(|room| {
+            let name = room.cached_display_name().map(|s| s.to_string()).or_else(|| room.name())
+                .unwrap_or_else(|| room.room_id().to_string());
+            (name, room.room_id().to_string())
+        }).collect();
+        self.project_rooms.sort_by(|a,b| a.0.to_lowercase().cmp(&b.0.to_lowercase()).then(a.1.cmp(&b.1)));
+        let mut labels = vec![crate::i18n::tr("Choose a room").to_owned()];
+        labels.extend(self.project_rooms.iter().map(|(name,_)| name.clone()));
+        let dropdown = self.view.drop_down(cx, ids!(project_room_picker.rooms));
+        dropdown.set_labels(cx, labels);
+        dropdown.set_selected_item(cx, 0);
+        self.present_selected_room(cx, 0);
+        self.project_room_reply = Some(reply);
+        self.view.view(cx, ids!(app_content)).set_visible(cx, false);
+        self.view.view(cx, ids!(project_room_picker)).set_visible(cx, true);
+        self.view.redraw(cx);
+        Ok(())
+    }
+    fn present_selected_room(&self, cx: &mut Cx, index: usize) {
+        let text = index.checked_sub(1).and_then(|i| self.project_rooms.get(i))
+            .map(|(name, id)| format!("{name}\n{id}"))
+            .unwrap_or_else(|| if self.project_rooms.is_empty() { "No private, unencrypted rooms created by you are available.".into() } else { String::new() });
+        self.view.label(cx, ids!(project_room_picker.selected_room)).set_text(cx, &text);
+    }
+    fn finish_room_picker(&mut self, cx: &mut Cx, selected: bool) {
+        let Some((heap, id)) = self.project_room_reply else { return; };
+        let account = crate::sliding_sync::current_user_id();
+        let authorized = self.lease.as_ref().zip(account.as_ref()).is_some_and(|(lease,account)|
+            lease.authorize(account.as_str(), "palpo.projects.select_room", None).is_ok());
+        if !authorized { self.stop(cx); return; }
+        let value = if selected {
+            let index = self.view.drop_down(cx, ids!(project_room_picker.rooms)).selected_item();
+            let Some((name,room)) = index.checked_sub(1).and_then(|i| self.project_rooms.get(i)) else {
+                self.notice(cx, "Choose a room before continuing."); return;
+            };
+            let joined = crate::sliding_sync::get_client().is_some_and(|client|
+                client.joined_rooms().iter().any(|r| r.room_id().as_str() == room && account.as_ref().is_some_and(|a| eligible_project_room(r, a.as_ref()))));
+            if !joined { self.notice(cx, "Room membership changed. Cancel and choose again."); return; }
+            json!({"cancelled":false,"name":name,"roomId":room})
+        } else { json!({"cancelled":true}) };
+        self.project_room_reply = None;
+        self.project_rooms.clear();
+        self.view.view(cx, ids!(project_room_picker)).set_visible(cx, false);
+        self.view.view(cx, ids!(app_content)).set_visible(cx, true);
+        splash_host_respond(cx, heap, id, Ok(&value.to_string()));
+        self.view.redraw(cx);
+    }
+
     fn dispatch(
         &mut self,
         service: &str,
@@ -564,7 +697,7 @@ impl MiniAppsPanel {
                 SignalToUI::set_ui_signal();
             });
         } else if octosense_app_contract::palpo::SERVICES.contains(&service) {
-            let host = self.palpo.clone().ok_or("Palpo session is unavailable")?;
+            let host = self.palpo.clone().ok_or("Hagency session is unavailable")?;
             let service = service.to_owned();
             crate::sliding_sync::spawn_async_task(async move {
                 let result = super::palpo::request(host, lease, service, args).await;
@@ -589,6 +722,7 @@ impl MiniAppsPanel {
             receiver: rx,
             started: Instant::now(),
             turn: service == "octos.turn.start",
+            navigation: super::palpo::PalpoNavigation::for_service(service),
         });
         Ok(())
     }
@@ -656,7 +790,9 @@ impl MiniAppsPanel {
         let owned_heaps: Vec<_> = heap.into_iter().collect();
         for req in take_splash_host_requests_for(&owned_heaps) {
             let result = rinx_miniapp_core::parse_arguments(&req.args_json).and_then(|args| {
-                if req.service == "rinx.event" {
+                if req.service == "palpo.projects.select_room" {
+                    self.begin_room_picker(cx, args, (req.heap_key, req.req_id))
+                } else if req.service == "rinx.event" {
                     self.event(cx, args)
                 } else {
                     self.dispatch(&req.service, args, Some((req.heap_key, req.req_id)), None)
@@ -681,7 +817,7 @@ impl MiniAppsPanel {
                 match pending.receiver.try_recv() {
                     Ok(event) => {
                         let complete = matches!(event, ServiceEvent::Complete(_));
-                        updates.push((pending.reply, pending.target.clone(), pending.turn, event));
+                        updates.push((pending.reply, pending.target.clone(), pending.turn, pending.navigation, event));
                         if complete {
                             done = true;
                             break;
@@ -693,6 +829,7 @@ impl MiniAppsPanel {
                             pending.reply,
                             pending.target.clone(),
                             pending.turn,
+                            pending.navigation,
                             ServiceEvent::Complete(Err(
                                 "Service connection closed before completing".into(),
                             )),
@@ -707,6 +844,7 @@ impl MiniAppsPanel {
                     pending.reply,
                     pending.target.clone(),
                     pending.turn,
+                    pending.navigation,
                     ServiceEvent::Complete(Err("Service timed out".into())),
                 ));
                 done = true;
@@ -714,11 +852,35 @@ impl MiniAppsPanel {
             !done
         });
         let mut redraw = false;
-        for (reply, target, turn, event) in updates {
-            let (complete, result) = match event {
+        for (reply, target, turn, navigation, event) in updates {
+            let (complete, mut result) = match event {
                 ServiceEvent::Data(v) => (false, Ok(v)),
                 ServiceEvent::Complete(r) => (true, r),
             };
+            if complete {
+                if let Some(navigation) = navigation {
+                    result = result.and_then(|value| {
+                        let account = &lease.identity().account;
+                        match navigation {
+                            super::palpo::PalpoNavigation::Signup => {
+                                let target = super::palpo::SignupApprovalTarget::from_reply(&value, account)?;
+                                cx.action(MiniAppsAction::OpenSignupApproval(target));
+                                Ok(json!({"opened": true}))
+                            }
+                            super::palpo::PalpoNavigation::AgentChat => {
+                                let target = super::palpo::AgentChatTarget::from_reply(&value, account)?;
+                                cx.action(MiniAppsAction::OpenAgentChat(target));
+                                Ok(json!({"requested": true}))
+                            }
+                            super::palpo::PalpoNavigation::ActionsRoom => {
+                                let target = super::palpo::ActionsRoomTarget::from_reply(&value, account)?;
+                                cx.action(MiniAppsAction::OpenActionsRoom(target));
+                                Ok(json!({"requested": true}))
+                            }
+                        }
+                    });
+                }
+            }
             if !complete {
                 if let Ok(value) = &result {
                     let event = &value["event"];
@@ -755,6 +917,9 @@ impl MiniAppsPanel {
                 if let Some((heap, req)) = reply {
                     let text = result.as_ref().map(|v| v.to_string());
                     splash_host_respond(cx, heap, req, text.as_deref().map_err(|e| e.as_str()));
+                    // Host callbacks run after this event and can replace dynamic
+                    // children. Invalidate this panel once after they have run.
+                    self.reply_redraw = cx.new_next_frame();
                 }
                 if let Err(error) = result {
                     self.notice(cx, &error);
@@ -777,13 +942,24 @@ impl Widget for MiniAppsPanel {
             if let Err(error) = self.render(cx) { self.notice(cx, &error); }
         }
         self.view.handle_event(cx, event, scope);
-        // A host reply can replace dynamic children while their new areas are
-        // still empty. Redraw their ancestors after the script queue is pumped.
-        if self.palpo.is_some() && matches!(event, Event::Signal) { cx.redraw_all(); }
+        if self.reply_redraw.is_event(event).is_some() {
+            self.reply_redraw = NextFrame::default();
+            self.view.redraw(cx);
+        }
         if let Event::Actions(actions) = event {
             if self.view.button(cx, ids!(close)).clicked(actions) {
                 if self.navigate_back(cx) { cx.action(MiniAppsAction::Close); }
                 return;
+            }
+            if self.project_room_reply.is_some() {
+                if let Some(index) = self.view.drop_down(cx, ids!(project_room_picker.rooms)).selected(actions) {
+                    self.present_selected_room(cx, index);
+                }
+                if self.view.button(cx, ids!(project_room_picker.use_room)).clicked(actions) {
+                    self.finish_room_picker(cx, true);
+                } else if self.view.button(cx, ids!(project_room_picker.cancel_room)).clicked(actions) {
+                    self.finish_room_picker(cx, false);
+                }
             }
             if self.view.button(cx, ids!(browse_hub)).clicked(actions) {
                 self.show_hub(cx);
@@ -852,6 +1028,7 @@ impl Widget for MiniAppsPanel {
                             receiver: rx,
                             started: Instant::now(),
                             turn: false,
+                            navigation: None,
                         }),
                         Err(e) => self.notice(cx, &e),
                     }
@@ -896,8 +1073,11 @@ impl Widget for MiniAppsPanel {
                 while let Some(index) = list.next_visible_item(cx) {
                     if let Some(app) = apps.get(index) {
                         let row = list.item(cx, index, id!(App));
+                        let operations = app.manifest.id == super::palpo::APP_ID;
+                        row.widget(cx, ids!(article_icon)).set_visible(cx, !operations);
+                        row.widget(cx, ids!(operations_icon)).set_visible(cx, operations);
                         row.label(cx, ids!(copy.name)).set_text(cx, crate::i18n::tr(&app.manifest.name));
-                        row.label(cx, ids!(copy.subtitle)).set_text(cx, if app.manifest.id == super::palpo::APP_ID {"Projects, resources and pending actions."} else {crate::i18n::tr("Your article, your style.")});
+                        row.label(cx, ids!(copy.subtitle)).set_text(cx, if app.manifest.id == super::palpo::APP_ID {crate::i18n::tr("Projects, resources and pending actions.")} else {crate::i18n::tr("Your article, your style.")});
                         row.draw_all(cx, &mut Scope::empty());
                     }
                 }
@@ -907,6 +1087,23 @@ impl Widget for MiniAppsPanel {
     }
 }
 impl MiniAppsPanelRef {
+    pub fn open_board(&self, cx: &mut Cx, target: super::palpo::ActionsRoomTarget) -> Result<(), String> {
+        let mut inner = self.borrow_mut().ok_or("Mini app view unavailable")?;
+        inner.open = true;
+        inner.board = Some(target);
+        inner.palpo_action = None;
+        let index = crate::system_apps::apps().iter().position(|a| a.manifest.id == super::palpo::APP_ID)
+            .ok_or("Hagency app is not installed")?;
+        inner.open_builtin(cx, index)
+    }
+
+    pub fn close_board(&self, cx: &mut Cx) {
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.stop(cx);
+            inner.open = false;
+            inner.board = None;
+        }
+    }
     /// Consume Back synchronously before the underlying Rinx/shell navigation.
     pub fn back(&self, cx: &mut Cx, modal: ModalRef) {
         let mut close = false;
@@ -919,6 +1116,7 @@ impl MiniAppsPanelRef {
     pub fn action(&self, cx: &mut Cx, modal: ModalRef, action: &MiniAppsAction) {
         if let Some(mut inner) = self.borrow_mut() {
             match action {
+                MiniAppsAction::OpenSignupApproval(_) | MiniAppsAction::OpenAgentChat(_) | MiniAppsAction::OpenActionsRoom(_) => {} // Handled by the account-bound app shell.
                 MiniAppsAction::Open => {
                     inner.open = true;
                     inner.show_catalog(cx);
@@ -940,10 +1138,7 @@ impl MiniAppsPanelRef {
                     let notice = inner.review_notice.clone();
                     inner.notice(cx, &notice);
                     inner.show_assistant_status(cx);
-                    inner
-                        .view
-                        .view(cx, ids!(import_form.core))
-                        .set_visible(cx, !crate::octos_service::is_hosted());
+                    inner.present_review_controls(cx);
                     modal.open(cx);
                 }
                 MiniAppsAction::Close => {
@@ -991,6 +1186,19 @@ mod tests {
         panel.review_package(&mut cx, package).expect("room review");
         assert_eq!(panel.reviewed_room, room);
         assert!(panel.review_notice.contains(&format!("Allowed room: {room}")));
+        panel.view.text_input(&cx, ids!(import_form.room)).set_text(&mut cx, "");
+        let palpo = Package::load_builtin(super::super::palpo::APP_ID, &snapshots).expect("bundled Palpo");
+        panel.review_package(&mut cx, palpo).expect("Palpo consent");
+        assert!(!panel.view.view(&cx, ids!(import_form.room_access)).visible());
+        assert!(!panel.view.label(&cx, ids!(import_form.assistant_status)).visible());
+        assert!(!panel.view.view(&cx, ids!(import_form.core)).visible());
+        // Reopening a reviewed package must preserve the same scoped controls.
+        panel.show_import(&mut cx);
+        assert!(!panel.view.view(&cx, ids!(import_form.room_access)).visible());
+        panel.package = None;
+        panel.show_import(&mut cx);
+        assert!(panel.view.view(&cx, ids!(import_form.room_access)).visible());
+        assert!(panel.view.label(&cx, ids!(import_form.assistant_status)).visible());
         let _ = std::fs::remove_dir_all(snapshots);
         panel.show_catalog(&mut cx);
         assert!(panel.navigate_back(&mut cx), "Only the outer catalog closes");

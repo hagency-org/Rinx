@@ -12,6 +12,93 @@ pub const APP_ID: &str = "im.palpo.operations";
 const PREFIX: &str = "/_palpo/miniapp/v1/";
 const MAX_WIRE_BYTES: usize = 2 * 1024 * 1024;
 
+/// A server-bound navigation result, not an approval verdict or a script URL.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SignupApprovalTarget {
+    v: u8,
+    request_id: String,
+    pub account: ruma::OwnedUserId,
+    pub room_id: ruma::OwnedRoomId,
+    pub event_id: ruma::OwnedEventId,
+}
+impl SignupApprovalTarget {
+    pub fn from_reply(value: &Value, account: &str) -> Result<Self, String> {
+        let target: Self = serde_json::from_value(value.clone())
+            .map_err(|_| "Palpo returned an invalid account approval destination")?;
+        if target.v != 1 || target.account.as_str() != account
+            || target.request_id.len() != 32 || !target.request_id.bytes().all(|c| c.is_ascii_hexdigit()) {
+            return Err("Palpo returned a different account or signup request".into());
+        }
+        Ok(target)
+    }
+}
+
+/// The current-account room of a server-verified ready agent. Scripts supply only
+/// the saved request ID; this closed reply cannot contain a URL or extra action.
+#[derive(Clone, Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AgentChatTarget {
+    v: u8,
+    request_id: String,
+    pub account: ruma::OwnedUserId,
+    pub room_id: ruma::OwnedRoomId,
+    pub agent_mxid: ruma::OwnedUserId,
+}
+impl AgentChatTarget {
+    pub fn from_reply(value: &Value, account: &str) -> Result<Self, String> {
+        let target: Self = serde_json::from_value(value.clone())
+            .map_err(|_| "Palpo returned an invalid agent chat destination")?;
+        let valid_request = target.request_id.split_once(':').is_some_and(|(fleet, request)| {
+            [fleet, request].iter().all(|part| !part.is_empty() && part.len() <= 80
+                && part.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-'))
+        });
+        if target.v != 1 || target.account.as_str() != account || !valid_request {
+            return Err("Palpo returned a different account or agent request".into());
+        }
+        Ok(target)
+    }
+}
+
+/// Closed server reply for a private action room. Matrix content is only a hint.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ActionsRoomTarget {
+    v: u8,
+    revision: u64,
+    purpose: String,
+    pub account: ruma::OwnedUserId,
+    pub room_id: ruma::OwnedRoomId,
+    bot_mxid: ruma::OwnedUserId,
+    server_name: String,
+}
+impl ActionsRoomTarget {
+    pub fn from_reply(value: &Value, account: &str) -> Result<Self, String> {
+        let target: Self = serde_json::from_value(value.clone())
+            .map_err(|_| "Palpo returned an invalid My Actions room")?;
+        if target.v != 1 || target.revision == 0 || target.purpose != "my_actions" || target.account.as_str() != account
+            || target.server_name != target.account.server_name().as_str()
+            || target.bot_mxid.server_name() != target.account.server_name()
+            || target.bot_mxid == target.account {
+            return Err("Palpo returned a different account or action room authority".into());
+        }
+        Ok(target)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PalpoNavigation { Signup, AgentChat, ActionsRoom }
+impl PalpoNavigation {
+    pub fn for_service(service: &str) -> Option<Self> {
+        match service {
+            "palpo.accounts.open" => Some(Self::Signup),
+            "palpo.requests.open" => Some(Self::AgentChat),
+            "palpo.actions.room.ensure" => Some(Self::ActionsRoom),
+            _ => None,
+        }
+    }
+}
+
 struct Session {
     token: String,
     expires: Instant,
@@ -25,6 +112,7 @@ struct Session {
 pub struct PalpoHost {
     digest: String,
     action: Option<String>,
+    board: Option<ActionsRoomTarget>,
     session: Arc<Mutex<Option<Session>>>,
     client: reqwest::Client,
 }
@@ -36,6 +124,7 @@ impl PalpoHost {
         Ok(Self {
             digest,
             action: None,
+            board: None,
             session: Default::default(),
             client: reqwest::Client::builder()
                 .redirect(reqwest::redirect::Policy::none())
@@ -46,6 +135,10 @@ impl PalpoHost {
     }
     pub fn with_action(mut self, action: Option<String>) -> Self {
         self.action = action.filter(|id| valid_action(id));
+        self
+    }
+    pub fn with_board(mut self, board: Option<ActionsRoomTarget>) -> Self {
+        self.board = board;
         self
     }
     /// Production callers derive all four context values from the active SDK
@@ -94,7 +187,7 @@ impl PalpoHost {
         if session.is_none() {
             let opened = self.post(&endpoint, "session", matrix_token, &json!({
                 "appId": lease.identity().app, "bundleDigest": self.digest,
-                "services": lease.services().iter().filter(|s| octosense_app_contract::palpo::SERVICES.contains(&s.as_str())).collect::<Vec<_>>()
+                "services": lease.services().iter().filter(|s| s.as_str() != "palpo.projects.select_room" && octosense_app_contract::palpo::SERVICES.contains(&s.as_str())).collect::<Vec<_>>()
             })).await?;
             lease.check(account)?;
             if opened["userId"].as_str() != Some(account) || opened["version"] != 1 {
@@ -115,6 +208,17 @@ impl PalpoHost {
             });
         }
         lease.authorize(account, service, None)?;
+        if let Some(board) = &self.board {
+            // Every operation from an embedded board requires its current room
+            // binding. Business authorization is still checked by the operation.
+            lease.authorize(account, "palpo.actions.room.get", None)?;
+            let checked = self.post(&endpoint, "call", &session.as_ref().unwrap().token,
+                &json!({"service":"palpo.actions.room.get", "args":{"roomId":board.room_id}})).await?;
+            if ActionsRoomTarget::from_reply(&checked["room"], account)? != *board {
+                return Err("My Actions room changed. Reopen the room or use the Inbox.".into());
+            }
+            lease.check(account)?;
+        }
         let result = self
             .post(
                 &endpoint,
@@ -131,8 +235,29 @@ impl PalpoHost {
             *session = None;
         }
         let mut result = result?;
+        if service == "palpo.accounts.open" {
+            let target = SignupApprovalTarget::from_reply(&result, account)?;
+            if args["requestId"].as_str() != Some(target.request_id.as_str()) {
+                return Err("Palpo returned a different signup request".into());
+            }
+        }
         if service == "palpo.session.open" {
+            // Older servers lack the designated business role. Fail closed;
+            // the Matrix admin flag is never an implicit project approval grant.
+            result["canApproveProjects"] =
+                json!(result["canApproveProjects"].as_bool().unwrap_or(false));
+            result["canReviewAgents"] = json!(result["canReviewAgents"].as_bool().unwrap_or(false));
             result["openAction"] = json!(self.action.as_deref().unwrap_or(""));
+            result["roomBoard"] = json!(self.board.is_some());
+        }
+        if service == "palpo.actions.room.ensure" {
+            ActionsRoomTarget::from_reply(&result, account)?;
+        }
+        if service == "palpo.actions.room.get" && !result["room"].is_null() {
+            let target = ActionsRoomTarget::from_reply(&result["room"], account)?;
+            if args["roomId"].as_str().is_some_and(|room| room != target.room_id.as_str()) {
+                return Err("Palpo returned a different My Actions room".into());
+            }
         }
         lease.check(account)?;
         if service == "palpo.fleets.export" {
@@ -140,22 +265,21 @@ impl PalpoHost {
                 serde_json::to_vec_pretty(&result).map_err(|_| "Invalid fleet configuration")?;
             // Credentials go directly to a native save dialog, never into an
             // isolate result, clipboard, chat, app jail, or diagnostic log.
-            let (tx, rx) = tokio::sync::oneshot::channel();
-            robius_file_picker::FileDialog::new()
-                .set_file_name("hagency-registration.json")
-                .save_data(bytes, move |result| {
-                    let _ = tx.send(
-                        result
-                            .map(|file| file.is_some())
-                            .map_err(|_| "Could not save configuration".to_string()),
-                    );
-                })
-                .map_err(|_| "Could not open the system save dialog")?;
-            let saved = rx
-                .await
-                .map_err(|_| "Configuration save was interrupted")??;
+            let saved = super::private_export::save(bytes, lease.clone(), account.to_owned()).await?;
             lease.check(account)?;
             return Ok(json!({"saved": saved}));
+        }
+        if service == "palpo.requests.open" {
+            let target = AgentChatTarget::from_reply(&result, account)?;
+            if args["requestId"].as_str() != Some(target.request_id.as_str()) {
+                return Err("Palpo returned a different agent request".into());
+            }
+        }
+        if matches!(service, "palpo.notifications.get" | "palpo.notifications.set") {
+            let object = result.as_object_mut().ok_or("Palpo returned invalid notification settings")?;
+            // A suggestion for the settings form, never silently saved as the
+            // user's cross-device preference. Unsupported hosts show UTC.
+            object.insert("deviceTimeZone".into(), json!(iana_time_zone::get_timezone().ok()));
         }
         bounded_reply(result)
     }
@@ -274,6 +398,52 @@ pub async fn request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn action_room_target_is_closed_and_bound_to_account_bot_server_and_revision() {
+        let value = json!({"v":1,"revision":1,"purpose":"my_actions","account":"@owner:example.test",
+            "roomId":"!actions:example.test","botMxid":"@bot:example.test","serverName":"example.test"});
+        let actor = "@owner:example.test";
+        assert!(ActionsRoomTarget::from_reply(&value, actor).is_ok());
+        assert!(ActionsRoomTarget::from_reply(&value, "@other:example.test").is_err());
+        for (key, invalid) in [("v", json!(2)), ("revision", json!(0)), ("purpose", json!("chat")),
+            ("serverName", json!("evil.test")), ("botMxid", json!(actor)), ("botMxid", json!("@bot:evil.test")),
+            ("roomId", json!("https://evil.test")), ("url", json!("https://evil.test"))] {
+            let mut altered = value.clone(); altered[key] = invalid;
+            assert!(ActionsRoomTarget::from_reply(&altered, actor).is_err(), "accepted {key}");
+        }
+    }
+    #[test]
+    fn signup_navigation_is_closed_and_bound_to_the_current_account() {
+        let value = json!({"v":1,"requestId":"a".repeat(32),"account":"@admin:example.test",
+            "roomId":"!approvals:example.test","eventId":"$original"});
+        let target = SignupApprovalTarget::from_reply(&value, "@admin:example.test").unwrap();
+        assert_eq!(target.event_id.as_str(), "$original");
+        assert!(SignupApprovalTarget::from_reply(&value, "@other:example.test").is_err());
+        for (key, replacement) in [
+            ("v", json!(2)), ("requestId", json!("changed")), ("roomId", json!("https://evil.test")),
+            ("eventId", json!("https://evil.test")), ("url", json!("https://evil.test")),
+        ] {
+            let mut changed = value.clone(); changed[key] = replacement;
+            assert!(SignupApprovalTarget::from_reply(&changed, "@admin:example.test").is_err(), "{key}");
+        }
+    }
+    #[test]
+    fn agent_chat_target_is_closed_typed_and_bound_to_the_current_account() {
+        let value = json!({"v": 1, "requestId": "fleet_a:request_b", "account": "@owner:example.test",
+            "roomId": "!project:example.test", "agentMxid": "@fleet_a_agent:example.test"});
+        let target = AgentChatTarget::from_reply(&value, "@owner:example.test").unwrap();
+        assert_eq!(target.request_id, "fleet_a:request_b");
+        assert!(AgentChatTarget::from_reply(&value, "@other:example.test").is_err());
+        for (key, replacement) in [
+            ("v", json!(2)), ("requestId", json!("invalid")), ("requestId", json!("a:b:c")),
+            ("roomId", json!("https://evil.test")), ("agentMxid", json!("not-a-user")),
+            ("url", json!("https://evil.test")),
+        ] {
+            let mut changed = value.clone(); changed[key] = replacement;
+            assert!(AgentChatTarget::from_reply(&changed, "@owner:example.test").is_err(), "{key}");
+        }
+    }
+
     #[test]
     fn inaccessible_configuration_does_not_report_a_missing_adapter() {
         let error = decode_response(

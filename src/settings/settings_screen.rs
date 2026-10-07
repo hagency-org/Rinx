@@ -1,6 +1,5 @@
 
 use makepad_widgets::*;
-use super::mobile_settings::MobileSettingsWidgetExt;
 
 use crate::{app::AppState, home::navigation_tab_bar::{NavigationBarAction, SelectedTab, get_own_profile}, profile::user_profile::UserProfile, settings::{PopulateMode, account_settings::AccountSettingsWidgetExt, app_settings::AppSettingsWidgetExt, privacy_settings::PrivacySettingsWidgetExt}};
 
@@ -62,9 +61,8 @@ script_mod! {
         text: ""
     }
 
-    // The main, top-level settings screen widget: a header, a row of category
-    // tabs, and one page per category (robrix2's structure). Each page wraps the
-    // same sub-widgets upstream already had, so nothing behind the tabs changed.
+    // One settings tree for desktop and mobile. Wrapping rows adapt the layout;
+    // categories, controls, actions and preference state are shared.
     mod.widgets.SettingsScreen = #(SettingsScreen::register_widget(vm)) {
         width: Fill, height: Fill,
         flow: Overlay
@@ -172,8 +170,6 @@ script_mod! {
             }
         }
 
-        mobile_settings := MobileSettings {visible: false}
-
         // We want all modals to appear in front of the settings screen.
         create_wallet_modal := Modal {
             content := CreateWalletModal {}
@@ -200,22 +196,17 @@ enum SettingsCategory {
 pub struct SettingsScreen {
     #[deref] view: View,
     #[rust] selected_category: SettingsCategory,
-    #[rust] was_mobile: Option<bool>,
 }
 
 impl Widget for SettingsScreen {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
-        if !crate::home::home_screen::effective_is_desktop(cx) {
-            self.view.mobile_settings(cx, ids!(mobile_settings)).handle_event(cx, event, scope);
-            return;
-        }
         self.view.handle_event(cx, event, scope);
 
         // ScriptReapply preserves text fields (String / ArcStringMut bail out),
         // but still resets animator-driven controls and `script_apply_eval`-driven
         // bits (avatar, button colors, our tab colours). Re-apply just those.
         // Never re-`set_text` user-editable inputs here, that would wipe in-progress edits.
-        if let Event::ScriptReapply = event {
+        if matches!(event, Event::ScriptReapply | Event::LiveEdit) {
             if let Some(app_state) = scope.data.get::<AppState>() {
                 self.populate_subwidgets(cx, PopulateMode::AfterReapply, None, app_state);
             }
@@ -300,18 +291,6 @@ impl Widget for SettingsScreen {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
-        let mobile = !crate::home::home_screen::effective_is_desktop(cx);
-        if self.was_mobile != Some(mobile) {
-            if !mobile {
-                if let Some(app_state) = scope.data.get::<AppState>() {
-                    let profile = get_own_profile(cx);
-                    self.populate_subwidgets(cx, PopulateMode::Initial, profile, app_state);
-                }
-            }
-            self.was_mobile = Some(mobile);
-        }
-        self.view.view(cx, ids!(main_content)).set_visible(cx, !mobile);
-        self.view.widget(cx, ids!(mobile_settings)).set_visible(cx, mobile);
         self.view.draw_walk(cx, scope, walk)
     }
 }
@@ -323,10 +302,7 @@ impl SettingsScreen {
             error!("Failed to get own profile for settings screen.");
             return;
         };
-        self.view.mobile_settings(cx, ids!(mobile_settings)).populate(cx, Some(profile.clone()));
-        if crate::home::home_screen::effective_is_desktop(cx) {
-            self.populate_subwidgets(cx, PopulateMode::Initial, Some(profile), app_state);
-        }
+        self.populate_subwidgets(cx, PopulateMode::Initial, Some(profile), app_state);
         self.view.button(cx, ids!(close_button)).reset_hover(cx);
         self.sync_selected_category(cx);
         cx.set_key_focus(self.view.area());
@@ -395,8 +371,8 @@ impl SettingsScreen {
 
 impl SettingsScreenRef {
     pub fn open_personal_info(&self, cx: &mut Cx) {
-        if let Some(inner) = self.borrow() {
-            inner.view.mobile_settings(cx, ids!(mobile_settings)).open_personal_info(cx);
+        if let Some(mut inner) = self.borrow_mut() {
+            inner.set_selected_category(cx, SettingsCategory::Account);
         }
     }
 

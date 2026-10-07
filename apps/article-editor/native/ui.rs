@@ -122,7 +122,7 @@ script_mod! {
     }
     mod.widgets.ArticlePrimary = mod.widgets.ArticleButton {width: Fill height: 46 align: Align{x: 0.5 y: 0.5} draw_bg +: {color: mod.widgets.RINX_ACCENT color_hover: mod.widgets.RINX_ACCENT_HOVER color_down: mod.widgets.RINX_ACCENT_DOWN} draw_icon +: {color: mod.widgets.RINX_ON_ACCENT}}
     mod.widgets.ArticleActions = View {width: Fill height: 44 flow: Right align: Align{x: 1.0 y: 0.5} spacing: 12}
-    mod.widgets.ArticleInput = RinxInput {width: Fill height: 44 draw_cursor +: {color: mod.widgets.RINX_ACCENT} draw_bg +: {color: mod.widgets.RINX_SURFACE color_hover: mod.widgets.RINX_SURFACE color_focus: mod.widgets.RINX_SURFACE color_empty: mod.widgets.RINX_SURFACE border_color: mod.widgets.RINX_BORDER border_color_focus: mod.widgets.RINX_ACCENT} draw_text +: {color: mod.widgets.RINX_INK color_focus: mod.widgets.RINX_INK color_hover: mod.widgets.RINX_INK text_style: theme.font_regular{font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}}
+    mod.widgets.ArticleInput = RinxInput {width: Fill height: 44 draw_cursor +: {color: mod.widgets.RINX_ACCENT} draw_bg +: {color: mod.widgets.RINX_SURFACE color_hover: mod.widgets.RINX_SURFACE color_focus: mod.widgets.RINX_SURFACE color_empty: mod.widgets.RINX_SURFACE border_color: mod.widgets.RINX_BORDER border_color_focus: mod.widgets.RINX_ACCENT} draw_text +: {color: mod.widgets.RINX_INK color_focus: mod.widgets.RINX_INK color_hover: mod.widgets.RINX_INK color_empty: mod.widgets.RINX_MUTED color_empty_hover: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}}
     mod.widgets.ArticleHtml = Html {
         selectable: true width: Fill height: Fit padding: 0
         font_size: (14 * mod.widgets.RINX_TEXT_SCALE)
@@ -169,6 +169,11 @@ script_mod! {
         draw_icon +: {color: mod.widgets.RINX_INK}
     }
     mod.widgets.ArticleTool = mod.widgets.ArticleIconButton {width: 36 height: 36 draw_bg +: {color: #x00000000 color_hover: mod.widgets.RINX_FIELD color_down: mod.widgets.RINX_PRESSED border_size: 0}}
+    mod.widgets.ArticleLibraryTab = RinxButton {
+        width: Fill height: 44 margin: 0 padding: 8
+        draw_bg +: {color: instance(mod.widgets.RINX_SURFACE) color_focus: instance(mod.widgets.RINX_SURFACE) color_hover: mod.widgets.RINX_HOVER color_down: mod.widgets.RINX_SELECTED border_size: 0 border_radius: 6}
+        draw_text +: {color: mod.widgets.RINX_MUTED color_focus: instance(mod.widgets.RINX_MUTED) color_hover: mod.widgets.RINX_INK color_down: mod.widgets.RINX_INK text_style: theme.font_bold{font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}
+    }
     // A compact theme swatch for the writing view's style panel: a tiny page with the
     // theme's paper, ink and accent, and the theme's name below.
     mod.widgets.ArticleThemeSwatch = NavigationBarButton {width: Fill height: Fill flow: Down align: Align{x: 0.5 y: 0.0} padding: 0 spacing: 6
@@ -202,10 +207,10 @@ script_mod! {
     mod.widgets.ArticlePanel = #(ArticlePanel::register_widget(vm)) {
         ..mod.widgets.SolidView
         icon_tooltip: CalloutTooltip {}
-        width: Fill height: Fill flow: Down draw_bg.color: mod.widgets.RINX_SURFACE
+        width: Fill height: Fill flow: Down align: Align{x: 0.5} draw_bg.color: mod.widgets.RINX_SURFACE
         padding: Inset{top: mod.widgets.SAFE_INSET_PAD_TOP + #(TOP) bottom: mod.widgets.SAFE_INSET_PAD_BOTTOM}
         header := SolidView {width: Fill height: 52 flow: Right align: Align{y: 0.5} padding: Inset{left: 8 right: 12} spacing: 8 draw_bg.color: mod.widgets.RINX_PAGE
-            article_back := RobrixNeutralIconButton {enable_long_press: true width: 36 height: 44 margin: 0 padding: 12 spacing: 0 draw_bg +: {color: #x00000000 color_hover: #x00000000 color_down: #x00000000 border_size: 0} draw_icon +: {svg: ICON_CHEVRON_LEFT color: mod.widgets.RINX_INK} icon_walk: Walk{width: 8 height: 14}}
+            article_back := RobrixNeutralIconButton {enable_long_press: true width: 44 height: 44 margin: 0 padding: 12 spacing: 0 draw_bg +: {color: #x00000000 color_hover: #x00000000 color_down: #x00000000 border_size: 0} draw_icon +: {svg: ICON_CHEVRON_LEFT color: mod.widgets.RINX_INK} icon_walk: Walk{width: 8 height: 14}}
             article_heading := mod.widgets.ArticleLabel {width: Fit max_lines: 1 draw_text.text_style: theme.font_bold{font_size: (16 * mod.widgets.RINX_TEXT_SCALE)}}
             header_fill := View {width: Fill height: Fill}
             // The writing view's article title, centred in the header as in the atlas.
@@ -254,31 +259,34 @@ script_mod! {
                 article_allow := mod.widgets.ArticlePrimary {width: 44 height: 44 draw_icon +: {svg: ICON_CHECKMARK}}
             }
         }
-        library := SolidView {visible: false width: Fill height: Fill flow: Down padding: 16 spacing: 12 draw_bg.color: mod.widgets.RINX_SURFACE
+        library := SolidView {visible: false width: Fill{max: 820} height: Fill flow: Down padding: 20 spacing: 16 draw_bg.color: mod.widgets.RINX_SURFACE
             article_search := mod.widgets.ArticleInput {draw_bg +: {color: mod.widgets.RINX_PAGE color_hover: mod.widgets.RINX_PAGE color_empty: mod.widgets.RINX_PAGE border_size: 0} empty_text: #(crate::i18n::tr("Search articles")) i18n_empty_text: "Search articles"}
             View {width: Fill height: 44 flow: Right spacing: 6
-                drafts_tab := mod.widgets.ArticleButton {draw_bg +: {color: mod.widgets.RINX_PAGE} width: Fill draw_icon +: {svg: ICON_EDIT}}
-                published_tab := mod.widgets.ArticleButton {draw_bg +: {color: mod.widgets.RINX_PAGE} width: Fill draw_icon +: {svg: ICON_SEND}}
-                withdrawn_tab := mod.widgets.ArticleButton {draw_bg +: {color: mod.widgets.RINX_PAGE} width: Fill draw_icon +: {svg: ICON_TRASH}}
+                drafts_tab := mod.widgets.ArticleLibraryTab {text: #(crate::i18n::tr("Drafts")) i18n_text: "Drafts"}
+                published_tab := mod.widgets.ArticleLibraryTab {text: #(crate::i18n::tr("Published")) i18n_text: "Published"}
+                withdrawn_tab := mod.widgets.ArticleLibraryTab {text: #(crate::i18n::tr("Withdrawn")) i18n_text: "Withdrawn"}
             }
             library_empty := mod.widgets.ArticleLabel {text: #(crate::i18n::tr("No articles here yet. Create your first article.")) i18n_text: "No articles here yet. Create your first article." draw_text.color: mod.widgets.RINX_MUTED}
             article_library := PortalList {width: Fill height: Fill
+                padding: Inset{right: 14}
+                scroll_bar: ScrollBar {bar_size: 8 bar_side_margin: 2 draw_bg +: {size: 4 color: mod.widgets.RINX_MUTED color_hover: mod.widgets.RINX_INK color_drag: mod.widgets.RINX_ACCENT border_size: 0}}
                 // Atlas article-list: thumbnail, title, status line and a chevron.
-                Entry := NavigationBarButton {width: Fill height: 104 flow: Right align: Align{y: 0.5} spacing: 14 padding: Inset{left: 4 right: 4 top: 10 bottom: 10} draw_bg +: {color_hover: mod.widgets.RINX_HOVER color_active: mod.widgets.RINX_SELECTED}
-                    // "Aa" shows through while there is no cover.
-                    RoundedView {width: 84 height: 84 flow: Overlay align: Align{x: 0.5 y: 0.5} draw_bg +: {color: mod.widgets.RINX_FIELD border_radius: 4.0}
-                        Label {text: "Aa" draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_bold{font_size: (20 * mod.widgets.RINX_TEXT_SCALE)}}}
+                Entry := NavigationBarButton {width: Fill height: Fit flow: Right align: Align{y: 0.0} spacing: 16 padding: Inset{left: 0 right: 0 top: 16 bottom: 16} draw_bg +: {color_hover: mod.widgets.RINX_HOVER color_active: mod.widgets.RINX_SELECTED}
+                    View {width: Fill height: Fit flow: Down spacing: 8
+                        title := mod.widgets.ArticleLabel {padding: 0 max_lines: 2 draw_text.text_style: theme.font_bold{font_size: (14 * mod.widgets.RINX_TEXT_SCALE)}}
+                        description := mod.widgets.ArticleLabel {padding: 0 max_lines: 2 text_overflow: Ellipsis draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}}
+                        summary := mod.widgets.ArticleLabel {padding: 0 max_lines: 1 text_overflow: Ellipsis draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}}
+                    }
+                    thumbnail_box := RoundedView {width: 80 height: 80 flow: Overlay align: Align{x: 0.5 y: 0.5} draw_bg +: {color: mod.widgets.RINX_FIELD border_radius: 6.0}
+                        Icon {width: 28 height: 28 draw_icon +: {svg: ICON_FILE color: mod.widgets.RINX_MUTED}}
                         thumbnail := Image {width: Fill height: Fill fit: ImageFit.CropToFill}
                     }
-                    View {width: Fill height: Fit flow: Down spacing: 8
-                        title := mod.widgets.ArticleLabel {max_lines: 2 draw_text.text_style: theme.font_bold{font_size: (15 * mod.widgets.RINX_TEXT_SCALE)}}
-                        summary := mod.widgets.ArticleLabel {max_lines: 1 draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}}
-                    }
-                    Label {text: "›" draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (20 * mod.widgets.RINX_TEXT_SCALE)}}}
                 }
             }
-            article_import := mod.widgets.ArticleButton {draw_bg +: {color: mod.widgets.RINX_PAGE} draw_icon +: {svg: ICON_IMPORT}}
-            article_share := mod.widgets.ArticleButton {draw_bg +: {color: mod.widgets.RINX_PAGE} width: Fill draw_icon +: {svg: ICON_SHARE}}
+            View {width: Fill height: 44 flow: Right spacing: 12
+                article_import := RinxButton {width: Fill height: 44 margin: 0 text: #(crate::i18n::tr("Import")) i18n_text: "Import"}
+                article_share := RinxButton {width: Fill height: 44 margin: 0 text: #(crate::i18n::tr("Share app")) i18n_text: "Share app"}
+            }
         }
         editor := View {visible: false width: Fill height: Fill flow: Right align: Align{x: 0.5}
             editor_sidebar := View {visible: false width: 230 height: Fill flow: Down padding: 18 spacing: 18
@@ -588,10 +596,15 @@ script_mod! {
             cover_remove := mod.widgets.ArticleButton {width: Fill draw_icon +: {svg: ICON_TRASH}}
           }
         }
-        preview := SolidView {visible: false width: Fill height: Fill flow: Down align: Align{x: 0.5} padding: RINX_GUTTER spacing: 12 draw_bg.color: mod.widgets.RINX_SURFACE
-            preview_title := mod.widgets.ArticleLabel {width: Fill{max: RINX_READING_WIDTH} draw_text.text_style: theme.font_bold{font_size: (18 * mod.widgets.RINX_TEXT_SCALE)}}
-            preview_author := mod.widgets.ArticleLabel {width: Fill{max: RINX_READING_WIDTH} draw_text.color: mod.widgets.RINX_MUTED}
+        preview := SolidView {visible: false width: Fill height: Fill flow: Down align: Align{x: 0.5} padding: Inset{left: 24 right: 24} spacing: 12 draw_bg.color: mod.widgets.RINX_SURFACE
             article_reader := PortalList {selectable: true width: Fill{max: RINX_READING_WIDTH} height: Fill
+                padding: Inset{right: 14}
+                scroll_bar: ScrollBar {bar_size: 8 bar_side_margin: 2 draw_bg +: {size: 4 color: mod.widgets.RINX_MUTED color_hover: mod.widgets.RINX_INK color_drag: mod.widgets.RINX_ACCENT border_size: 0}}
+                Heading := View {width: Fill height: Fit flow: Down padding: Inset{top: 28 bottom: 28} spacing: 16
+                    preview_title := mod.widgets.ArticleLabel {padding: 0 draw_text.text_style: theme.font_bold{font_size: (22 * mod.widgets.RINX_TEXT_SCALE)}}
+                    preview_author := mod.widgets.ArticleLabel {padding: 0 draw_text.text_style.font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}
+                    preview_stats := mod.widgets.ArticleLabel {padding: 0 draw_text.text_style.font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}
+                }
                 Text := View {width: Fill height: Fit flow: Down padding: Inset{bottom: 12} body := mod.widgets.ArticleHtml {}}
                 PlainText := View {width: Fill height: Fit flow: Down padding: Inset{bottom: 12} body := mod.widgets.RinxReaderHtml {}}
                 Image := View {width: Fill height: Fit flow: Down spacing: 6 padding: Inset{bottom: 16}
@@ -599,7 +612,6 @@ script_mod! {
                     caption := mod.widgets.ArticleLabel {draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}}
                 }
             }
-            preview_stats := mod.widgets.ArticleLabel {width: Fill{max: RINX_READING_WIDTH} draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}}
             css_preview_open := mod.widgets.ArticleButton {width: Fill{max: RINX_READING_WIDTH} visible: #(cfg!(feature = "html_preview")) draw_icon +: {svg: ICON_HTML_FILE}}
             preview_check := mod.widgets.ArticlePrimary {width: Fill{max: RINX_READING_WIDTH} draw_icon +: {svg: crate_resource("self://resources/icons/eye_open.svg")}}
         }
@@ -942,7 +954,7 @@ impl ArticlePanel {
         if let Some(index)=index {
             let editing=self.page==Page::Edit;
             let cover=usize::from(!editing && self.doc.cover.as_ref().is_some_and(|c|c.show_in_article));
-            self.portal_list(cx,if editing {ids!(article_blocks)}else{ids!(article_reader)}).set_first_id_and_scroll(index+cover,0.0);
+            self.portal_list(cx,if editing {ids!(article_blocks)}else{ids!(article_reader)}).set_first_id_and_scroll(index+cover+usize::from(!editing),0.0);
             self.redraw(cx);
         }
     }
@@ -1881,22 +1893,35 @@ impl ArticlePanel {
         };
         self.label(cx, ids!(library_empty))
             .set_visible(cx, self.entries.is_empty());
+        self.style_library_tabs(cx);
+        self.portal_list(cx, ids!(article_library))
+            .set_first_id_and_scroll(0, 0.0);
+        self.view.redraw(cx);
+    }
+    fn style_library_tabs(&mut self, cx: &mut Cx) {
+        let empty_message = if !self.text_input(cx, ids!(article_search)).text().trim().is_empty() {
+            "No matching articles. Try another keyword."
+        } else { match self.library_tab {
+            1 => "No published articles yet. Publish a draft to a chat to see it here.",
+            2 => "No withdrawn articles.",
+            _ => "No articles here yet. Create your first article.",
+        }};
+        self.label(cx, ids!(library_empty)).set_text(cx, tr(empty_message));
+        self.label(cx, ids!(library_empty)).set_visible(cx, self.entries.is_empty());
         for (id, tab) in [
             (id!(drafts_tab), 0),
             (id!(published_tab), 1),
             (id!(withdrawn_tab), 2),
         ] {
-            let button = self.button(cx, &[id]);
+            let mut button = self.button(cx, &[id]);
             let ink = if tab == self.library_tab {
                 self.appearance.accent
             } else {
                 self.appearance.muted
             };
-            if let Some(mut button) = button.borrow_mut() { button.draw_icon.color = ink; }
+            let fill = if tab == self.library_tab {self.appearance.selected} else {self.appearance.surface};
+            script_apply_eval!(cx, button, {draw_text +: {color: #(ink) color_focus: #(ink)} draw_bg +: {color: #(fill) color_focus: #(fill)}});
         }
-        self.portal_list(cx, ids!(article_library))
-            .set_first_id_and_scroll(0, 0.0);
-        self.view.redraw(cx);
     }
     fn show(&mut self, cx: &mut Cx, page: Page) {
         self.hide_icon_hint(cx);
@@ -1929,13 +1954,14 @@ impl ArticlePanel {
     /// navigating, reloading source text, clearing selection, or issuing work.
     fn restore_page_ui(&mut self, cx: &mut Cx) {
         let page = self.page;
+        if page == Page::Library { self.style_library_tabs(cx); }
         self.view(cx, ids!(header)).set_visible(cx, !self.tabbed_reader);
         let writing = page == Page::Write;
         let publishing = self.publish_flow && matches!(page, Page::Cover | Page::Rooms | Page::Published);
         self.view(cx, ids!(write_controls)).set_visible(cx, writing);
         self.view(cx, ids!(write_title_box)).set_visible(cx, writing);
         self.view(cx, ids!(header_fill)).set_visible(cx, !writing);
-        self.button(cx, ids!(article_close)).set_visible(cx, !writing && !publishing && page != Page::Published);
+        self.button(cx, ids!(article_close)).set_visible(cx, !writing && !publishing && !matches!(page, Page::Published | Page::Library));
         self.button(cx, ids!(article_new)).set_visible(cx, page == Page::Library);
         // The writing view hides the heading at phone width; other pages always show it.
         self.label(cx, ids!(article_heading)).set_visible(cx, true);
@@ -2058,17 +2084,12 @@ impl ArticlePanel {
     // Authored article paper and ink are content, independent of app chrome.
     // Reapply them without loading a cover or changing the document/history.
     fn apply_document_paint(&mut self, cx: &mut Cx) {
-        let (paper, ink, _) = self.document_colors();
+        let (paper, _, _) = self.document_colors();
         let paper = color(paper);
-        let ink = color(ink);
         let mut editor = self.view(cx, ids!(editor_paper));
         script_apply_eval!(cx,editor,{draw_bg +: {color: #(paper)}});
         let mut preview = self.view(cx, ids!(preview));
         script_apply_eval!(cx,preview,{draw_bg +: {color: #(paper)}});
-        for id in [id!(preview_title), id!(preview_author)] {
-            let mut label = self.label(cx, &[id]);
-            script_apply_eval!(cx,label,{draw_text +: {color: #(ink)}});
-        }
     }
     fn bind(&mut self, cx: &mut Cx) {
         self.body_selection.reset();
@@ -2691,12 +2712,15 @@ impl ScriptHook for ArticlePanel {
     fn on_after_apply(
         &mut self,
         vm: &mut ScriptVm,
-        _apply: &Apply,
+        apply: &Apply,
         _scope: &mut Scope,
         _value: ScriptValue,
     ) {
         let appearance = crate::theme::snapshot_for_vm(vm);
-        self.restore_after_theme |= self.active && self.appearance.revision != appearance.revision;
+        // A stylesheet can reapply identical palette values while resetting
+        // runtime child properties (selected tabs and page visibility).
+        self.restore_after_theme |= self.active
+            && (apply.is_script_reapply() || self.appearance.revision != appearance.revision);
         if self.plain_markdown && self.appearance.revision != appearance.revision {
             self.native_preview_key.clear();
             self.write_preview_key.clear();
@@ -3071,6 +3095,17 @@ impl Widget for ArticlePanel {
                     }
                 }
             }
+            if self.page == Page::Library {
+                for (id, tab) in [(id!(drafts_tab), 0), (id!(published_tab), 1), (id!(withdrawn_tab), 2)] {
+                    if self.button(cx, &[id]).clicked(actions) {
+                        self.library_tab = tab;
+                        self.filter_library(cx);
+                    }
+                }
+                if self.text_input(cx, ids!(article_search)).changed(actions).is_some() {
+                    self.filter_library(cx);
+                }
+            }
             if !self.editable() {
                 return;
             }
@@ -3084,23 +3119,6 @@ impl Widget for ArticlePanel {
             if self.page == Page::Library {
                 if self.button(cx, ids!(article_import)).clicked(actions) {
                     self.import_file(cx);
-                }
-                for (id, tab) in [
-                    (id!(drafts_tab), 0),
-                    (id!(published_tab), 1),
-                    (id!(withdrawn_tab), 2),
-                ] {
-                    if self.button(cx, &[id]).clicked(actions) {
-                        self.library_tab = tab;
-                        self.filter_library(cx);
-                    }
-                }
-                if self
-                    .text_input(cx, ids!(article_search))
-                    .changed(actions)
-                    .is_some()
-                {
-                    self.filter_library(cx);
                 }
                 for (index, item) in self
                     .portal_list(cx, ids!(article_library))
@@ -3792,7 +3810,7 @@ impl Widget for ArticlePanel {
                 } else if blocks {
                     self.doc.blocks.len()
                 } else if reader {
-                    (if self.doc.is_html_source(){self.doc.blocks.len()}else{self.native_preview.len()}) + usize::from(cover.is_some())
+                    (if self.doc.is_html_source(){self.doc.blocks.len()}else{self.native_preview.len()}) + usize::from(cover.is_some()) + 1
                 } else if themes {
                     Theme::ALL.len().div_ceil(2)
                 } else if writing {
@@ -3840,6 +3858,9 @@ impl Widget for ArticlePanel {
                             },
                         );
                         row.label(cx, ids!(summary)).set_text(cx, &status);
+                        row.label(cx, ids!(description)).set_text(cx, &doc.summary);
+                        row.label(cx, ids!(description)).set_visible(cx, !doc.summary.is_empty());
+                        row.view(cx, ids!(thumbnail_box)).set_visible(cx, doc.cover.is_some());
                         let thumbnail = row.image(cx, ids!(thumbnail));
                         self.load_asset(
                             cx,
@@ -3915,9 +3936,29 @@ impl Widget for ArticlePanel {
                         let input = row.article_rich_input(cx, ids!(rich));
                         self.body_selection.after_draw(cx, index, &input);
                     } else if reader {
+                        if index == 0 {
+                            let row = list.item(cx, index, id!(Heading));
+                            let (paper, ink, accent) = self.document_colors();
+                            let ink = color(ink);
+                            let muted = if self.plain_markdown {self.appearance.muted} else {ink * 0.75 + color(paper) * 0.25};
+                            let mut title = row.label(cx, ids!(preview_title));
+                            title.set_text(cx, &self.doc.title);
+                            script_apply_eval!(cx, title, {draw_text +: {color: #(ink)}});
+                            let mut author = row.label(cx, ids!(preview_author));
+                            author.set_text(cx, &self.doc.author);
+                            author.set_visible(cx, !self.doc.author.is_empty());
+                            script_apply_eval!(cx, author, {draw_text +: {color: #(color(accent))}});
+                            let (_, minutes, _) = self.doc.stats();
+                            let mut stats = row.label(cx, ids!(preview_stats));
+                            stats.set_text(cx, &format!("{} {}", minutes, tr("min read")));
+                            script_apply_eval!(cx, stats, {draw_text +: {color: #(muted)}});
+                            row.draw_all(cx, &mut Scope::empty());
+                            continue;
+                        }
+                        let content_index = index - 1;
                         let cover_count = usize::from(cover.is_some());
-                        if !self.doc.is_html_source() && index >= cover_count {
-                            if let Some(block) = self.native_preview.get(index - cover_count) {
+                        if !self.doc.is_html_source() && content_index >= cover_count {
+                            if let Some(block) = self.native_preview.get(content_index - cover_count) {
                                 let row = list.item(cx, index, if self.plain_markdown {id!(PlainText)} else {id!(Text)});
                                 let mut html = row.html(cx, ids!(body));
                                 self.style_reader_html(cx, html.clone());
@@ -3943,13 +3984,13 @@ impl Widget for ArticlePanel {
                             continue;
                         }
                         let block = if cover.is_some() {
-                            if index == 0 {
+                            if content_index == 0 {
                                 None
                             } else {
-                                self.doc.blocks.get(index - 1)
+                                self.doc.blocks.get(content_index - 1)
                             }
                         } else {
-                            self.doc.blocks.get(index)
+                            self.doc.blocks.get(content_index)
                         };
                         let picture =
                             block.is_none() || block.is_some_and(|b| b.kind == BlockKind::Image);
@@ -4104,6 +4145,16 @@ impl Widget for ArticlePanel {
 }
 use article_core::assets::crop_cover;
 impl ArticlePanelRef {
+    /// Offline review only: no grant is created and publishing remains unavailable.
+    #[cfg(feature = "ux_fixtures")]
+    pub fn review_library(&self, cx: &mut Cx, documents: Vec<Document>) {
+        if let Some(mut panel) = self.borrow_mut() {
+            panel.active = true;
+            panel.library.documents = documents;
+            panel.show(cx, Page::Library);
+            panel.filter_library(cx);
+        }
+    }
     /// Opens a downloaded Markdown document using the existing native reader.
     pub fn read_markdown(&self, cx: &mut Cx, title: &str, source: &str) -> Result<(), String> {
         let document = Document::from_markdown(title, source)?;

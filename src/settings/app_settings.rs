@@ -242,7 +242,7 @@ script_mod! {
         appearance := AppearanceSettings {}
 
         View {
-            width: Fill height: Fit flow: Right align: Align{y: 0.5} spacing: 12
+            width: Fill height: Fit flow: Flow.Right{wrap: true} align: Align{y: 0.5} spacing: 12
             SubsectionLabel {text: #(crate::i18n::tr("Language")) i18n_text: "Language"}
             language_dropdown := mod.widgets.RobrixSettingsDropDown {
                 labels: ["English", "简体中文"] selected_item: 0

@@ -144,7 +144,8 @@ impl Widget for MentionableTextInput {
             for action in actions {
                 // Handle updated matches for the current query, but only if it's ours.
                 if let Some(results) = action.downcast_ref::<MentionMatches>() {
-                    if results.owner == uid && results.request_id == self.request_id {
+                    if results.owner == uid && results.request_id == self.request_id
+                        && results.epoch == crate::account_session::epoch() {
                         let empty = self.active_trigger.map_or("", |t| t.kind.empty_message());
                         popup_ref.set_results(cx, uid, results.items.clone(), false, empty);
                     }
@@ -264,10 +265,14 @@ impl MentionableTextInput {
         let can_notify_room = self.can_notify_room;
         let room_name = self.room_name.clone();
 
+        let epoch = crate::account_session::epoch();
+        let current_user = crate::sliding_sync::current_user_id();
         std::thread::spawn(move || {
-            let current_user = crate::sliding_sync::current_user_id();
             let items = rank_members(&query, &members, can_notify_room, current_user, room_name);
-            Cx::post_action(MentionMatches::new(request_id, uid, items));
+            if epoch != crate::account_session::epoch() { return; }
+            let mut result = MentionMatches::new(request_id, uid, items);
+            result.epoch = epoch;
+            Cx::post_action(result);
         });
     }
 
@@ -522,13 +527,14 @@ pub struct MentionableTextInputState {
 /// Matched users or rooms/spaces, ranked on a background thread.
 #[derive(Clone, Debug)]
 pub struct MentionMatches {
+    epoch: u64,
     request_id: u64,
     owner: WidgetUid,
     items: Arc<Vec<MentionItem>>,
 }
 impl MentionMatches {
     pub fn new(request_id: u64, owner: WidgetUid, items: Vec<MentionItem>) -> Self {
-        Self { request_id, owner, items: Arc::new(items) }
+        Self { epoch: crate::account_session::epoch(), request_id, owner, items: Arc::new(items) }
     }
 }
 

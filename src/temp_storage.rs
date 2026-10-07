@@ -1,4 +1,4 @@
-use std::{path::{Path, PathBuf}, sync::OnceLock, time::{Duration, SystemTime}};
+use std::{path::{Path, PathBuf}, time::{Duration, SystemTime}};
 use makepad_widgets::error;
 use crate::cache_dir;
 
@@ -11,16 +11,16 @@ const CLEANUP_DELAY: Duration = Duration::from_secs(60);
 /// Creates and returns the path to an app-local temp directory,
 /// a subdirectory within the platform-designated cache dir for this app.
 ///
-/// This is cheap to repeatedly call, it only does the directory work once.
-pub fn get_temp_dir_path() -> &'static PathBuf {
-    static TEMP_DIR_PATH: OnceLock<PathBuf> = OnceLock::new();
-    TEMP_DIR_PATH.get_or_init(|| {
-        let path = cache_dir().join(TEMP_SUBDIR);
-        if let Err(e) = std::fs::create_dir_all(&path) {
-            error!("Failed to create temp dir {}: {e}", path.display());
-        }
-        path
-    })
+/// Callers capture this path before launching a background share operation.
+pub fn get_temp_dir_path() -> PathBuf {
+    let key = crate::sliding_sync::current_user_id()
+        .map(|user| blake3::hash(user.as_str().as_bytes()).to_hex().to_string())
+        .unwrap_or_else(|| "signed-out".into());
+    let path = cache_dir().join(TEMP_SUBDIR).join(key);
+    if let Err(e) = std::fs::create_dir_all(&path) {
+        error!("Failed to create temp dir {}: {e}", path.display());
+    }
+    path
 }
 
 /// Schedules a task to clear leftover temp files from previous app runs.

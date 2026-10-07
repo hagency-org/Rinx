@@ -268,10 +268,11 @@ pub fn start_attachment_share(
     update_sender: TimelineUpdateSenderOption,
 ) {
     let mime = info.kind.basic_mime_type();
+    let temp_dir = get_temp_dir_path();
     download_media(info, update_sender, move |filename, mxc, bytes, sender| {
         // Success shows a "Shared" indicator; a share-step failure (already shown as
         // a popup) just resets, since the download itself did succeed.
-        let outcome = if share_bytes(&filename, &mxc, &bytes, mime) {
+        let outcome = if share_bytes(&temp_dir, &filename, &mxc, &bytes, mime) {
             DownloadOutcome::Succeeded
         } else {
             DownloadOutcome::Cancelled
@@ -285,8 +286,9 @@ pub fn share_loaded_attachment(info: &DownloadableAttachment, bytes: Arc<[u8]>) 
     let mxc = media_source_mxc(&info.media_source).clone();
     let mime = info.kind.basic_mime_type();
     let filename = info.filename.clone();
+    let temp_dir = get_temp_dir_path();
     // Don't write a large attachment file to disk on the main UI thread.
-    std::thread::spawn(move || share_bytes(&filename, &mxc, &bytes, mime));
+    std::thread::spawn(move || share_bytes(&temp_dir, &filename, &mxc, &bytes, mime));
 }
 
 /// Writes the given `bytes` to a temp file (based on `filename`) and presents the native share sheet for it.
@@ -294,12 +296,12 @@ pub fn share_loaded_attachment(info: &DownloadableAttachment, bytes: Arc<[u8]>) 
 /// This is required because sharing a file requires a real path.
 ///
 /// Returns true if the share sheet was shown. Enqueues a popup error upon any failure.
-fn share_bytes(filename: &str, mxc: &OwnedMxcUri, bytes: &[u8], mime: Option<&str>) -> bool {
+fn share_bytes(temp_dir: &std::path::Path, filename: &str, mxc: &OwnedMxcUri, bytes: &[u8], mime: Option<&str>) -> bool {
     let mut safe_name = sanitize_filename::sanitize(filename);
     if safe_name.is_empty() {
         safe_name = "shared_file".to_owned();
     }
-    let dir = get_temp_dir_path().join(sanitize_filename::sanitize(mxc.as_str()));
+    let dir = temp_dir.join(sanitize_filename::sanitize(mxc.as_str()));
     let path = dir.join(safe_name);
     if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, bytes)) {
         enqueue_popup_notification(

@@ -127,6 +127,7 @@ pub fn pending_reply_draft(pending: &Pending) -> Option<(ReplyDraftKey, String)>
 pub struct Member {
     pub id: OwnedUserId,
     pub name: String,
+    pub avatar_url: Option<ruma::OwnedMxcUri>,
     pub invited: bool,
 }
 #[derive(Clone, Debug)]
@@ -1056,7 +1057,8 @@ pub fn timeline_from_state(room: &ruma::RoomId, state: &[Value]) -> Result<Timel
             .unwrap_or(id.as_str())
             .to_string();
         audience.push(format!("{id}:{}", if invited { "invite" } else { "join" }));
-        members.push(Member { id, name, invited });
+        let avatar_url = event["content"]["avatar_url"].as_str().map(Into::into);
+        members.push(Member { id, name, avatar_url, invited });
     }
     audience.sort();
     members.sort_by(|a, b| a.id.cmp(&b.id));

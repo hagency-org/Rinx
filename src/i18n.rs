@@ -73,6 +73,23 @@ pub fn text_for(language: Language, english: &str) -> &str {
 pub fn tr(english: &str) -> &str {
     text_for(language(), english)
 }
+/// Read-only presentation API for trusted mini-app isolates. Locale follows
+/// Rinx settings; it never enters a service payload or translates account data.
+pub fn splash_mod(vm: &mut makepad_widgets::ScriptVm) {
+    use makepad_widgets::*;
+    let api = vm.new_module(id!(rinx_i18n));
+    vm.add_method(api, id_lut!(locale), script_args_def!(), |vm, _| {
+        vm.bx.heap.new_string_from_str(match language() {
+            Language::English => "en",
+            Language::Chinese => "zh-CN",
+        })
+    });
+    vm.add_method(api, id_lut!(tr), script_args_def!(key = NIL), |vm, args| {
+        let value = script_value!(vm, args.key);
+        let key = String::script_from_value(vm, value);
+        vm.bx.heap.new_string_from_str(tr(&key))
+    });
+}
 pub fn plural_suffix(count: usize) -> &'static str {
     if language() == Language::Chinese || count == 1 {
         ""
@@ -159,6 +176,13 @@ fn refresh_ui_in_language(
     let mut seen = std::collections::HashSet::new();
     while let Some(widget) = stack.pop() {
         if !seen.insert(widget.widget_uid()) {
+            continue;
+        }
+        // Splash owns a separate heap. Notify its optional presentation hook;
+        // never interpret its source indices or arbitrary text in Rinx's VM.
+        // The hook keeps the app's model, session, draft and timers alive.
+        if widget.borrow::<Splash>().is_some() {
+            widget.as_splash().call_script_fn(cx, id!(on_locale_changed), &[]);
             continue;
         }
         widget.children(&mut |_, child| stack.push(child));

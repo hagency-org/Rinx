@@ -14,7 +14,7 @@ use matrix_sdk::{
         UserId,
     }, Client
 };
-use tokio::{runtime::Handle, sync::mpsc::{UnboundedReceiver, UnboundedSender}};
+use tokio::{sync::mpsc::{UnboundedReceiver, UnboundedSender}};
 
 use crate::shared::popup_list::{enqueue_popup_notification, PopupKind};
 
@@ -47,7 +47,7 @@ pub enum VerificationStateAction {
 pub fn add_verification_event_handlers_and_sync_client(client: Client) -> tokio::task::JoinHandle<()> {
     let mut verification_state_subscriber = client.encryption().verification_state();
     log!("Initial verification state is {:?}", verification_state_subscriber.get());
-    let verification_state_handle = Handle::current().spawn(async move {
+    let verification_state_handle = crate::account_session::spawn(async move {
         while let Some(state) = verification_state_subscriber.next().await {
             log!("Received a verification state update: {state:?}");
             Cx::post_action(VerificationStateAction::Update(state));
@@ -61,7 +61,7 @@ pub fn add_verification_event_handlers_and_sync_client(client: Client) -> tokio:
                 .get_verification_request(&ev.sender, &ev.content.transaction_id)
                 .await
             {
-                Handle::current().spawn(request_verification_handler(client, request));
+                crate::account_session::spawn(request_verification_handler(client, request));
             }
             else {
                 // warning!("Skipping invalid verification request from {}, transaction ID: {}\n   Content: {:?}",
@@ -79,7 +79,7 @@ pub fn add_verification_event_handlers_and_sync_client(client: Client) -> tokio:
                     .get_verification_request(&ev.sender, &ev.event_id)
                     .await
                 {
-                    Handle::current().spawn(request_verification_handler(client, request));
+                    crate::account_session::spawn(request_verification_handler(client, request));
                 }
                 else {
                     // warning!("Skipping invalid verification request from {}, event ID: {}\n   Content: {:?}",
@@ -156,7 +156,7 @@ async fn sas_verification_handler(
                         key_confirmation = KeyConfirmation::UserAnswered;
                         log!("User confirmed SAS verification keys");
                         let sas2 = sas.clone();
-                        Handle::current().spawn(async move {
+                        crate::account_session::spawn(async move {
                             if let Err(e) = sas2.confirm().await {
                                 log!("Failed to confirm SAS verification keys; error: {:?}", e);
                                 Cx::post_action(VerificationAction::SasConfirmationError(Arc::new(e)));

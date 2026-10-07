@@ -60,6 +60,8 @@ script_mod! {
                     align: Align{x: 0.5, y: 0.5}
                     spacing: 15.0
 
+                    saved_accounts := mod.widgets.AccountList { show_add: false }
+
                     logo_image := Image {
                         fit: ImageFit.Smallest,
                         width: 80
@@ -596,6 +598,13 @@ impl MatchEvent for LoginScreen {
                     self.login_pending = true;
                     self.show_status(cx, title, status, if self.sso_pending { crate::i18n::tr("Cancel") } else { crate::i18n::tr("Please wait…") }, self.sso_pending);
                 }
+                Some(LoginAction::AccountPickerReady) => {
+                    self.login_pending = false;
+                    self.sso_pending = false;
+                    self.reset_server(cx);
+                    self.view.text_input(cx, ids!(user_id_input)).set_text(cx, "");
+                    modal.close(cx);
+                }
                 Some(LoginAction::LoginSuccess) => {
                     self.login_pending = false;
                     self.sso_pending = false;
@@ -619,7 +628,7 @@ impl MatchEvent for LoginScreen {
                 _ => {}
             }
         }
-        self.view.button(cx, ids!(login_button)).set_enabled(cx, !self.login_pending);
+        self.view.button(cx, ids!(login_button)).set_enabled(cx, !self.login_pending && !crate::sliding_sync::account_changing());
         self.view.button(cx, ids!(browser_login_button)).set_enabled(cx, !self.login_pending);
         self.view.button(cx, ids!(edit_server_button)).set_enabled(cx, !self.login_pending);
         self.view.button(cx, ids!(continue_server_button)).set_enabled(cx, !self.login_pending && !self.discovery_pending);
@@ -633,6 +642,7 @@ impl MatchEvent for LoginScreen {
 #[derive(Clone, Default, Debug)]
 pub enum LoginAction {
     LoginSuccess,
+    AccountPickerReady,
     LoginFailure(String),
     Status { title: String, status: String },
     CliAutoLogin { user_id: String, homeserver: Option<String> },

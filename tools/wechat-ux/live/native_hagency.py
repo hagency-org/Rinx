@@ -35,6 +35,16 @@ def fixture():
         with os.fdopen(fd,'w') as f:json.dump(original,f)
     return json.loads(path.read_text())
 
+def scroll_to(app, widget):
+    for _ in range(16):
+        height = app.request('/s')['w'][0]['sz'][1]
+        if any(w['i']==widget and 150 < w['r'][1] and w['r'][1]+w['r'][3]<height-30 for w in app.snap()):
+            return
+        app.request('/m',k='scroll',x=220,y=440,dy=350,wait=1)
+        time.sleep(.3)
+    raise AssertionError('Setting not reachable: '+widget)
+
+
 def main():
     os.environ.update(MAKEPAD_HIDE_WINDOWS='1',MAKEPAD_NO_FOCUS='1');os.environ.pop('MAKEPAD_FOCUS',None)
     f=fixture();room=f['rooms']['hagency'];agent=f['users']['agent'];assert agent['user_id'].startswith('@robrix_ux_')
@@ -48,7 +58,7 @@ def main():
         app=NativeApp(ROOT,8299,size=size);apps.append(app);app.start();report['runs'].append(str(app.output));app.wait_text('All Chats',timeout=90);return app
     def stop(app):app.stop();apps.remove(app)
     def back(app):app.click(24,54)
-    def settings(app):app.click_id('me_tab');app.click_id('settings');app.click_id('general_row');app.click_id('hagency_row')
+    def settings(app):app.click_id('me_tab');app.click_id('settings');app.click_id('category_preferences_button');scroll_to(app,'agent_ops')
     def texts(app):return [w['text'] for w in app.ocr()]
     def scroll(app,dy=500):app.request('/m',k='scroll',x=220,y=440,dy=dy,wait=1);time.sleep(.4)
     try:
@@ -82,10 +92,10 @@ def main():
         app.click_id('agent_chat_toggle');time.sleep(.3)
         app.click_id('agent_ops');app.wait_text('Agent Operations awaits a released backend contract');app.capture('ops-release-gate')
         assert not any(t=='Connect' for t in texts(app)), 'Production connection form must be gated'
-        app.click_id('close');back(app);app.click_id('language_row');app.click_id('language_zh');back(app);app.click_id('hagency_row')
+        app.click_id('close');app.request('/m',k='scroll',x=220,y=440,dy=-10000,wait=1);app.click_id('language_dropdown');app.request('/k',c='ArrowDown',wait=1);scroll_to(app,'agent_ops')
         app.wait_text('启用智能体工作流命令',pixels=True);app.capture('settings-zh')
         app.click_id('agent_ops');app.wait_text('智能体操作正在等待后端协议正式发布',pixels=True);app.capture('ops-release-gate-zh')
-        app.click_id('close');back(app);app.click_id('language_row');app.click_id('language_en');passed('mobile_hagency_settings_and_release_gate_translate_in_place')
+        app.click_id('close');app.request('/m',k='scroll',x=220,y=440,dy=-10000,wait=1);app.click_id('language_dropdown');app.request('/k',c='ArrowUp',wait=1);passed('mobile_hagency_settings_and_release_gate_translate_in_place')
         state_path=next(profile.rglob('latest_app_state.json'))
         stop(app)
         assert json.loads(state_path.read_text())['app_prefs']['agent_chat_enabled'], 'Mobile toggle did not persist'

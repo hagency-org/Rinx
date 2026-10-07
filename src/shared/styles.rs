@@ -98,7 +98,7 @@ script_mod! {
 
     mod.widgets.COLOR_ROBRIX_CYAN = #05CDC7; // the cyan color from the Rinx logo // theme-content: stable brand or avatar identity.
 
-    mod.widgets.TYPING_NOTICE_TEXT_COLOR = mod.widgets.RINX_MUTED
+    mod.widgets.TYPING_NOTICE_TEXT_COLOR = mod.widgets.RINX_INK
 
 
     mod.widgets.MESSAGE_FONT_SIZE = mod.widgets.RINX_BODY_SIZE
@@ -154,14 +154,7 @@ script_mod! {
     mod.widgets.COLOR_WARNING_YELLOW = mod.widgets.RINX_WARNING_FG
     mod.widgets.COLOR_TEXT_WARNING_NOT_FOUND = mod.widgets.RINX_WARNING_FG
 
-    // mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED
-    // mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED
-    // mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED // results in #B5D8FE when mixed halfway with white
-    // mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED
-    // 0x4C is ~30% opacity , which results in #B5D8FE when atop pure white
-    // But i like the look of 0x33 20% opacity a little better.
-    mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED
-    // mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_SELECTED // results in #A6CDFE when mixed halfway with white
+    mod.widgets.COLOR_SELECT_TEXT = mod.widgets.RINX_TEXT_SELECTION_BG
 
     mod.widgets.COLOR_PRIMARY = mod.widgets.RINX_SURFACE
 
@@ -308,7 +301,6 @@ script_mod! {
 
         draw_selection +: {
             color: mod.widgets.COLOR_SELECT_TEXT
-            // color: mix(mod.widgets.COLOR_BG_DISABLED, mod.widgets.COLOR_SELECT_TEXT, 0.5)
             color_hover:  (mod.widgets.COLOR_SELECT_TEXT)
             color_focus:  (mod.widgets.COLOR_SELECT_TEXT)
             color_down:  (mod.widgets.COLOR_SELECT_TEXT)
@@ -326,9 +318,9 @@ script_mod! {
             color_focus: (mod.widgets.MESSAGE_TEXT_COLOR),
             color_down: (mod.widgets.MESSAGE_TEXT_COLOR),
             color_disabled: (mod.widgets.COLOR_FG_DISABLED),
-            color_empty: #B,
-            color_empty_hover: #9,
-            color_empty_focus: #9,
+            color_empty: (mod.widgets.RINX_MUTED),
+            color_empty_hover: (mod.widgets.RINX_MUTED),
+            color_empty_focus: (mod.widgets.RINX_MUTED),
 
             text_style: mod.widgets.MESSAGE_TEXT_STYLE {},
         }

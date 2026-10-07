@@ -9,7 +9,7 @@ use makepad_widgets::*;
 use matrix_sdk::{Client, RoomState, media::MediaRequestParameters};
 use matrix_sdk_ui::spaces::{SpaceRoom, SpaceRoomList, SpaceService, room_list::SpaceRoomListPaginationState};
 use ruma::{OwnedMxcUri, OwnedRoomId, events::room::MediaSource, room::RoomType};
-use tokio::{runtime::Handle, sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle};
+use tokio::{sync::mpsc::{UnboundedReceiver, UnboundedSender}, task::JoinHandle};
 use crate::{app::AppStateAction, home::{rooms_list::{RoomsListUpdate, enqueue_rooms_list_update}, spaces_bar::{JoinedSpaceInfo, SpacesListUpdate, enqueue_spaces_list_update}}, room::FetchedRoomAvatar, utils::{self, RoomNameId}};
 
 /// Whether to enable verbose logging of all spaces service diff updates.
@@ -169,7 +169,7 @@ pub async fn space_service_loop(client: Client) -> anyhow::Result<()> {
         // Here, we need to spawn a new space room list task for this space.
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<SpaceRoomListRequest>();
         let space_room_list = space_service.space_room_list(space_id.clone()).await;
-        let join_handle = Handle::current().spawn(
+        let join_handle = crate::account_session::spawn(
             space_room_list_loop(
                 space_id.clone(),
                 parent_chain.clone(),
@@ -284,7 +284,7 @@ pub async fn space_service_loop(client: Client) -> anyhow::Result<()> {
                     let space_service = Arc::clone(&space_service);
                     let client = client.clone();
                     // this is potentially a long-running operation, so spawn it in a new task.
-                    Handle::current().spawn(async move {
+                    crate::account_session::spawn(async move {
                         if !client.get_room(space_name_id.room_id())
                             .is_some_and(|r| r.state() == RoomState::Joined)
                         {
@@ -500,7 +500,7 @@ fn add_new_space(space: &SpaceRoom, client: &Client) {
         let space_id = space.room_id.clone();
         let space_display_name = space.display_name.clone();
         let client2 = client.clone();
-        Handle::current().spawn(async move {
+        crate::account_session::spawn(async move {
             let Ok(_permit) = SPACE_AVATAR_FETCH_LIMIT.acquire().await else { return };
             let Ok(avatar) = fetch_space_avatar(url, &client2)
                 .await
@@ -652,7 +652,7 @@ async fn update_space(
             let url_opt = new_space.avatar_url.clone();
             let client2 = client.clone();
             // Spawn a new task to fetch the space's new avatar in the background.
-            Handle::current().spawn(async move {
+            crate::account_session::spawn(async move {
                 let space_avatar_opt = if let Some(url) = url_opt {
                     fetch_space_avatar(url, &client2)
                         .await

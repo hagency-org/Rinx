@@ -30,7 +30,7 @@ script_mod! {
             padding: Inset{left: 5.0, right: 0.0, top: 0.0, bottom: 0.0}
             draw_text +: {
                 color: (TYPING_NOTICE_TEXT_COLOR),
-                text_style: REGULAR_TEXT {font_size: (9 * mod.widgets.RINX_TEXT_SCALE)}
+                text_style: REGULAR_TEXT {font_size: (10.5 * mod.widgets.RINX_TEXT_SCALE)}
             }
             text: #(crate::i18n::tr("Someone is typing")) i18n_text: "Someone is typing"
         }

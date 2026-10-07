@@ -316,13 +316,7 @@ script_mod! {
                                 title_container +: {padding: Inset{left: 62 right: 54}}
                                 info_controls := View {
                                     width: Fill height: 45 align: Align{x: 1 y: 0.5}
-                                    chat_info_button := RobrixNeutralIconButton {
-                                        width: 48 height: 44 padding: 12
-                                        text: "···"
-                                        draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_bold {font_size: (18 * mod.widgets.RINX_TEXT_SCALE)}}
-                                        draw_bg +: {color: #x00000000 color_hover: #x00000000 border_size: 0}
-                                        icon_walk: Walk{width: 0 height: 0}
-                                    }
+                                    chat_info_button := RinxChatInfoButton {}
                                 }
                             }}
                             body +: {

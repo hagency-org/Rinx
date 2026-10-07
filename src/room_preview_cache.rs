@@ -196,5 +196,6 @@ pub fn clear_all_pending_requests() {
 /// This function requires passing in a reference to `Cx`,
 /// which acts as a guarantee that this thread-local cache is cleared on the main UI thread.
 pub fn clear_room_preview_cache(_cx: &mut Cx) {
+    while PENDING_ROOM_PREVIEW_UPDATES.pop().is_some() {}
     ROOM_PREVIEW_CACHE.with_borrow_mut(|cache| cache.clear());
 }

@@ -20,23 +20,35 @@
     "palpo.agents.register",
     "palpo.agents.rename",
     "palpo.agents.retire",
+    "palpo.agents.control",
     "palpo.activity.list",
     "palpo.accounts.list",
+    "palpo.accounts.open",
     "palpo.inbox.list",
     "palpo.inbox.submit",
     "palpo.inbox.get",
     "palpo.inbox.decide",
     "palpo.inbox.activate",
     "palpo.inbox.seen",
-    "palpo.inbox.snooze"
+    "palpo.inbox.snooze",
+    "palpo.notifications.get",
+    "palpo.notifications.set",
+    "palpo.actions.room.get",
+    "palpo.actions.room.ensure",
+    "palpo.requests.open",
+    "palpo.projects.select_room"
   ],
   "id": "im.palpo.operations",
   "integrity": {
-    "bundle_blake3": "25e82095e7e9a68b300e1553cda7b53702cdfd531e6fee73cde6b417aab3da0a"
+    "bundle_blake3": "5253958e63b3386b5228ad56f07c880acf07e764de0783a659f54de6ba69ad6b"
   },
-  "name": "Palpo",
+  "name": "Hagency",
   "requires": [
-    "palpo-admin-v1"
+    "palpo-admin-v1",
+    "palpo-actions-room-v1",
+    "palpo-agent-navigation-v1",
+    "palpo-account-navigation-v1",
+    "palpo-project-room-picker-v1"
   ],
   "schema": 1,
   "version": "0.1.0"

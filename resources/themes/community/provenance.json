@@ -1,0 +1,143 @@
+{
+  "observed_on": "2026-10-06",
+  "selection_basis": "Widely adopted theme projects with 6,000\u201323,000+ GitHub stars when checked; a curated selection, not a popularity ranking.",
+  "adaptation": "Rinx chat adaptations, not claims of official upstream ports. Both variants validate primary/secondary text and action contrast at 4.5:1 or above; canvas/incoming/outgoing fill separation is at least 1.15:1. Platform typography, icons and metrics remain inherited.",
+  "license_notices": "../../../NOTICE",
+  "palettes": [
+    {
+      "repository": "https://github.com/catppuccin/catppuccin",
+      "revision": "d09787dd98ca6fba08af5ef2ae94a7e09f17daca",
+      "stars_observed": 19810,
+      "observed_on": "2026-10-06",
+      "files": [
+        {
+          "path": "README.md",
+          "url": "https://raw.githubusercontent.com/catppuccin/catppuccin/d09787dd98ca6fba08af5ef2ae94a7e09f17daca/README.md",
+          "sha256": "6f5151cdd4fe3e94dac978a9b88444c888698af37ff8e654088cd043d33411b2"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/catppuccin/catppuccin/d09787dd98ca6fba08af5ef2ae94a7e09f17daca/LICENSE",
+          "sha256": "814096d2c34cc216c624738a49356f32b7237733b4f7edb0685f4e50ef5074ba"
+        },
+        {
+          "path": "docs/style-guide.md",
+          "url": "https://raw.githubusercontent.com/catppuccin/catppuccin/d09787dd98ca6fba08af5ef2ae94a7e09f17daca/docs/style-guide.md",
+          "sha256": "c497665ad7918a2fa9a40ea61d9e72d7deb0164f2b609a4436f998ddec18edd8"
+        }
+      ],
+      "id": "community-catppuccin",
+      "license": "MIT",
+      "variants": "Latte / Mocha",
+      "adaptation": "Latte uses Crust canvas, Base incoming and Mantle fields; Mocha uses Base canvas and Surface0 incoming. Mauve accents, tinted outgoing fills, and light secondary text are contrast-adjusted for chat."
+    },
+    {
+      "repository": "https://github.com/nordtheme/nord",
+      "revision": "1cef71605416a222e57225b544540ce0fcec18d4",
+      "stars_observed": 6886,
+      "observed_on": "2026-10-06",
+      "files": [
+        {
+          "path": "src/nord.scss",
+          "url": "https://raw.githubusercontent.com/nordtheme/nord/1cef71605416a222e57225b544540ce0fcec18d4/src/nord.scss",
+          "sha256": "03d9dd98ff983308d10a9a4820c870e9eed7183a2d8aa689e3041e6d7cf1511b"
+        },
+        {
+          "path": "license",
+          "url": "https://raw.githubusercontent.com/nordtheme/nord/1cef71605416a222e57225b544540ce0fcec18d4/license",
+          "sha256": "25ac8188d670bd2ad2ce2f4f55ab88573010ee9f7a4502543cb1eea1e2274f8a"
+        }
+      ],
+      "id": "community-nord",
+      "license": "MIT",
+      "variants": "Snow Storm / Polar Night",
+      "adaptation": "Uses Nord Polar Night, Snow Storm and Frost colors. Rinx supplies a white light incoming surface, blue-tinted outgoing fills, and contrast-adjusted Frost actions."
+    },
+    {
+      "repository": "https://github.com/dracula/dracula-theme",
+      "revision": "e22ebcc048b8aff586f9bc94db30ff5347070b42",
+      "stars_observed": 23597,
+      "observed_on": "2026-10-06",
+      "files": [
+        {
+          "path": "README.md",
+          "url": "https://raw.githubusercontent.com/dracula/dracula-theme/e22ebcc048b8aff586f9bc94db30ff5347070b42/README.md",
+          "sha256": "3f798014d8e25a4c15f6ad26bc767d99bfc367ec3f9883bd4b5ce0fe562647d0"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/dracula/dracula-theme/e22ebcc048b8aff586f9bc94db30ff5347070b42/LICENSE",
+          "sha256": "38b806a7e799cca4e9821e6f8d65cf0d8bfaaddbe454b41f12e5baad52d310f1"
+        }
+      ],
+      "id": "community-dracula",
+      "license": "MIT",
+      "variants": "Alucard / Dracula",
+      "adaptation": "Uses the upstream OSS Alucard light and Dracula dark palettes. Rinx adds a muted light canvas, raised dark incoming surface, violet outgoing fill, and contrast-adjusted purple links and secondary text."
+    },
+    {
+      "repository": "https://github.com/morhetz/gruvbox",
+      "revision": "ef8864bb42bf244f0295d1c5a403b27e3d139695",
+      "stars_observed": 15777,
+      "observed_on": "2026-10-06",
+      "files": [
+        {
+          "path": "colors/gruvbox.vim",
+          "url": "https://raw.githubusercontent.com/morhetz/gruvbox/ef8864bb42bf244f0295d1c5a403b27e3d139695/colors/gruvbox.vim",
+          "sha256": "55116926ba2b625837d9ae89349a5688d60d0b32acdbd8887e1c0d225f079c3d"
+        },
+        {
+          "path": "README.md",
+          "url": "https://raw.githubusercontent.com/morhetz/gruvbox/ef8864bb42bf244f0295d1c5a403b27e3d139695/README.md",
+          "sha256": "6e6575904dc53bdfc5745ec3edcf019b3e44b43b9a96570d59a33465ed2b954c"
+        }
+      ],
+      "id": "community-gruvbox",
+      "license": "MIT",
+      "variants": "Light / Dark",
+      "adaptation": "Uses original light1/light0/light2 and dark0/dark1 earth tones. Amber actions, tinted dark outgoing and a darker light amber accent adapt the editor palette to readable chat."
+    },
+    {
+      "repository": "https://github.com/folke/tokyonight.nvim",
+      "revision": "cdc07ac78467a233fd62c493de29a17e0cf2b2b6",
+      "stars_observed": 8215,
+      "observed_on": "2026-10-06",
+      "files": [
+        {
+          "path": "lua/tokyonight/colors/night.lua",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/night.lua",
+          "sha256": "a8d87bf7aeb44617de4168d26fd9c1167bf3e7278acb0e155855caf6267b9c2d"
+        },
+        {
+          "path": "lua/tokyonight/colors/day.lua",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/day.lua",
+          "sha256": "dd4314852645c9f0b41d11412b3ae379856e5034aa4c0429ebbfb5fd05007a4d"
+        },
+        {
+          "path": "lua/tokyonight/colors/storm.lua",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/lua/tokyonight/colors/storm.lua",
+          "sha256": "a96775b3b2bae3da751322806f7daaf2f8c9242cf4b52493732c62dc45c8894c"
+        },
+        {
+          "path": "LICENSE",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/LICENSE",
+          "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"
+        },
+        {
+          "path": "README.md",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/README.md",
+          "sha256": "0fae5ac88834668e0d1a3cd2acff1318a996eb044e5fbb067542c84c55291d2c"
+        },
+        {
+          "path": "extras/windows_terminal/tokyonight_day.json",
+          "url": "https://raw.githubusercontent.com/folke/tokyonight.nvim/cdc07ac78467a233fd62c493de29a17e0cf2b2b6/extras/windows_terminal/tokyonight_day.json",
+          "sha256": "bc0fcea357788c6e5920165d38be7dc5f8446eefe82adb732ec11202e88f59ff"
+        }
+      ],
+      "id": "community-tokyo-night",
+      "license": "Apache-2.0",
+      "variants": "Day / Night",
+      "adaptation": "Uses upstream generated Day and Night palettes. Rinx adds raised incoming panels, blue outgoing fills, neutral Day text and contrast-adjusted blue actions."
+    }
+  ]
+}

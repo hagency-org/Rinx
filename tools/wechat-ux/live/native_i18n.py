@@ -37,7 +37,7 @@ def main():
         raise AssertionError('Operation did not finish')
     def back(app):app.click(24,54);time.sleep(.4)
     def language_page(app):
-        app.click_id('me_tab');app.click_id('settings');app.click_id('general_row');app.click_id('language_row')
+        app.click_id('me_tab');app.click_id('settings');app.click_id('category_preferences_button')
     def feed(app):app.click_id('discover_tab');app.click_id('discover_moments');idle(app)
     def locale(path,value):
         profile=path/'profile';profile.mkdir(exist_ok=True)
@@ -58,9 +58,9 @@ def main():
         app=start();feed(app);app.click_id('moments_compose');idle(app)
         draft='Chats Settings Moments '+uuid.uuid4().hex[:6]+' 中文 {count}'
         field(app,'moments_body',draft);back(app);back(app)
-        language_page(app);app.click_id('language_zh');app.wait_text('语言',pixels=True)
-        app.capture('language-zh');back(app);app.wait_text('通用',pixels=True);app.capture('general-zh')
-        back(app);app.wait_text('账号与安全',pixels=True);app.capture('settings-zh');back(app)
+        language_page(app);app.click_id('language_dropdown');app.request('/k',c='ArrowDown',wait=1);app.wait_text('语言',pixels=True)
+        app.capture('language-zh');app.wait_text('应用设置',pixels=True);app.capture('preferences-zh')
+        app.click_id('category_account_button');app.wait_text('账号设置',pixels=True);app.capture('settings-zh');app.click_id('close_button')
         app.wait_text('我的朋友圈',pixels=True);app.capture('me-zh')
         app.click_id('contacts_tab');app.wait_text('通讯录',pixels=True);app.capture('contacts-zh')
         app.click_id('chats_tab');app.wait_text('全部聊天',pixels=True);app.wait_text('文件传输助手',pixels=True);app.capture('chats-zh')

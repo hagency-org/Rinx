@@ -2,8 +2,47 @@
 
 Rinx's standalone appearance is now a device preference shared by native pages,
 participating mini apps, URL cards, and plain Markdown readers. Open **Settings →
-App appearance → Customize appearance** to duplicate a theme, edit it, preview
+Preferences → App appearance → Customize appearance** to duplicate a theme, edit it, preview
 light/dark variants, apply, undo, reset, import, export, or share a theme file.
+
+The same appearance settings on desktop and mobile offer independent **Appearance
+mode** (Light, Dark, System) and **Color palette** controls, with a live chat
+preview. Changing the palette preserves your mode, including following the system.
+Every bundled palette has distinct light and dark variants:
+
+| Palette | Character |
+| --- | --- |
+| Rinx (default) | Neutral surfaces, Teal or Violet accent |
+| Codex | Cool blue |
+| Claude | Warm terracotta |
+| Slate | Cool indigo |
+| Solarized | Sand and blue-green |
+| Sage | Soft green |
+| Rose | Muted pink |
+| [Catppuccin](https://github.com/catppuccin/catppuccin) | Pastel mauve; Latte / Mocha |
+| [Nord](https://github.com/nordtheme/nord) | Frost blue; Snow Storm / Polar Night |
+| [Dracula](https://github.com/dracula/dracula-theme) | Violet; Alucard / Dracula |
+| [Gruvbox](https://github.com/morhetz/gruvbox) | Warm amber and cream; Light / Dark |
+| [Tokyo Night](https://github.com/folke/tokyonight.nvim) | Blue and indigo; Day / Night |
+
+This provides 26 light/dark combinations including the default's two accents.
+Named palettes coordinate their own accents; **Customize appearance** edits them.
+
+These bundled `.octotheme` files compile into the existing Makepad `StyleSheet`
+and use its live `ScriptReapply` path. Customize, export and share work with them
+as well. The first four named palettes preserve OctosCode's original dark colors;
+Rinx adds their light counterparts and the Sage/Rose pairs. The five community
+palettes are adaptations for chat, selected for broad adoption and complementary
+color families. They retain recognizable source hues while adjusting message
+surfaces, secondary text and link colors for readability. Source revisions,
+popularity observations and role mappings are recorded in the
+[OctosCode](../resources/themes/octoscode/provenance.json) and
+[community](../resources/themes/community/provenance.json) provenance files;
+license notices are retained in [NOTICE](../NOTICE). Fonts, icons
+and dimensions remain inherited from the native platform. Light variants and the
+Sage/Rose and community pairs separate the canvas, incoming and outgoing message fills,
+with at least 4.5:1 primary/secondary text contrast. Existing, unedited dark-only
+presets gain light variants on load; edited/imported customizations are retained.
 
 An imported file opens for review. Receiving it does not change appearance.
 Preview changes the open application without changing startup settings. Cancel

@@ -58,6 +58,75 @@ native logs and input traces under the corresponding `target/*validation` or
 `target/*regressions` directory. Native prerequisites are documented beside the
 existing [probe](../tools/wechat-ux/live/native_probe.py).
 
+## Popular palettes: macOS, 2026-10-06
+
+The bundled catalog now includes Catppuccin, Nord, Dracula, Gruvbox and Tokyo
+Night adaptations, each with coordinated light/dark variants. Appearance mode
+remains independent of palette selection. Source revisions, adaptations and
+license notices are recorded in the [customer guide](customer-themes.md).
+
+| Check | Result |
+| --- | --- |
+| `cargo test --offline --profile fast --locked --lib theme::` | 11 passed, including all bundled palettes in both modes against macOS, Windows, iOS and Android base styles |
+| Fast Rinx, `theme_mvp` and `chat_theme` builds | Passed |
+| Production chat components, five new palettes × two modes × desktop/narrow | 20 captures passed text/fill contrast, rendered canvas/initials and retained draft checks |
+| Native appearance controls, desktop/narrow | Menu bounds and pointer selection, all five light/dark pairs, persisted selection, System preservation, restart and return to defaults passed in a separate controls-only diagnostic |
+| Full native/embedded palette suite | Failed: embedded theme registration exceeded Makepad's script time budget; an L0 preview retained stale or missing ink |
+| Unchanged external pixel UX scorer | 8.09–9.22/10; mean 8.679. The 9.5 target is **not met** |
+| Source guards | Theme literals, translation catalog and diff whitespace passed |
+
+Local evidence: `target/chat-theme-review/bd3e35a0edfc4adc9d1b88620c83ece8/`
+contains the chat report, whole native captures and HTML review. The full
+embedded suite's failures are preserved under
+`target/theme-preset-validation/{e212b69c2eaf47249c281554287772c1,194c3e8a508f43ca92187506618e62fa}/`.
+The separate native-controls diagnostic is under
+`target/popular-palette-controls/6cbe45084afe4dfebd72ab4cca096e89/`;
+it reports embedded mismatches separately and does not establish embedded
+restyling correctness. These are macOS windows at desktop and phone widths,
+not physical mobile-device runs.
+
+The pinned Makepad revision `1f3b1dedfbb81424eb8dbf69e5e2c634fa73dc54`
+runs trusted framework/theme registration inside Splash's 64 ms script budget
+in `widgets/src/splash.rs::eval_styled_body_with_apply`. The failure reproduced
+in concurrent and serial test runs while this machine was under heavy load.
+Separating trusted registration from budgeted app evaluation remains unresolved;
+this change neither increases nor disables the app's execution limits.
+
+## Selection readability: macOS, 2026-10-06
+
+Opaque theme selection fills previously covered chat glyphs. Plain/rich message
+renderers now reserve the selection background before emitting text. Text inputs
+also use an explicit selection draw-call group: a later caret draw can no longer
+prevent reuse of the background call and move the highlight above the letters.
+
+Native GPU comparisons verify that selected glyphs retain their ink, that the
+highlight is present, and that selection still produces the expected text.
+The message checks cover all 26 bundled light/dark combinations (light at desktop
+width, dark at phone width). The complete selection suite passed 15 checks in
+each default mode, and the timeline suite passed seven drag/scroll/link checks.
+Quoted and code-formatted text remained readable in the light and dark probes.
+The production desktop/mobile composers passed all four mode/layout cases,
+including select-all, replacement and undo. These are native macOS window tests,
+not physical mobile-device tests.
+
+```sh
+cargo build --offline --profile fast --locked --example chat_text_selection --example chat_timeline_selection --example chat_theme --bin rinx
+python3 tools/wechat-ux/live/native_chat_selection.py --binary target/fast/examples/chat_text_selection
+python3 tools/wechat-ux/live/native_chat_selection.py --binary target/fast/examples/chat_text_selection --appearance dark --narrow
+python3 tools/wechat-ux/live/native_chat_selection.py --binary target/fast/examples/chat_text_selection --visual-only --palette resources/themes/community/catppuccin.octotheme
+python3 tools/wechat-ux/live/native_chat_selection.py --binary target/fast/examples/chat_text_selection --visual-only --blocks --appearance dark --narrow
+python3 tools/wechat-ux/live/native_chat_timeline_selection.py --binary target/fast/examples/chat_timeline_selection
+python3 tools/wechat-ux/live/native_composer_selection.py
+```
+
+The existing native selection probe now checks pixels as well as copy state;
+the new composer probe includes screenshots and binary hashes. Both wait for a
+rendered unselected baseline rather than comparing against an initial clear-only
+frame. Local evidence is under `target/chat-selection-regressions/`,
+`target/selection-palette-validation/`, `target/chat-timeline-selection-regressions/`
+and `target/composer-selection-validation/a3de6258c1064372adfec42943681b6d/`.
+The separate embedded-app reload timeout reported above is unaffected.
+
 ## Results: macOS, 2026-10-03
 
 The [machine-readable record](theme-validation.json) contains the run directories,

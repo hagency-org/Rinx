@@ -10,14 +10,15 @@ app_main!(App);
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.*
-    mod.widgets.WebBrowserWindow = mod.widgets.WebBrowserWindow {
-        body +: {web_browser +: {toolbar +: {
+    let FixtureControls = View {width: Fill height: 44 flow: Right
             fixture_next := Button {text: "Next"}
             fixture_inspect := Button {text: "Inspect"}
             fixture_scroll := Button {text: "Scroll"}
             fixture_new_tab := Button {text: "New tab"}
             fixture_markdown := Button {text: "Markdown"}
-        }}}
+    }
+    mod.widgets.WebBrowserWindow = mod.widgets.WebBrowserWindow {
+        body +: { web_browser +: {fixture_controls := FixtureControls {}} }
     }
     startup() do #(App::script_component(vm)) {
         ui: Root {
@@ -34,13 +35,7 @@ script_mod! {
                     browser_modal := Modal {
                         can_dismiss: false
                         content := WebBrowser {
-                            toolbar +: {
-                                fixture_next := Button {text: "Next"}
-                                fixture_inspect := Button {text: "Inspect"}
-                                fixture_scroll := Button {text: "Scroll"}
-                                fixture_new_tab := Button {text: "New tab"}
-                                fixture_markdown := Button {text: "Markdown"}
-                            }
+                            fixture_controls := FixtureControls {}
                         }
                     }
                 }

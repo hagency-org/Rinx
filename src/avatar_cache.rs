@@ -103,6 +103,7 @@ pub fn clear_all_pending_and_failed_requests() {
 /// This function requires passing in a reference to `Cx`,
 /// which acts as a guarantee that this function must only be called by the main UI thread.
 pub fn clear_avatar_cache(_cx: &mut Cx) {
+    while PENDING_AVATAR_UPDATES.pop().is_some() {}
     AVATAR_NEW_CACHE.with_borrow_mut(|cache| {
         cache.clear();
     });

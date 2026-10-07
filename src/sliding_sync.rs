@@ -227,7 +227,39 @@ async fn login(
             } else {
                 cli
             };
-            let (client, client_session) = build_client(cli, app_data_dir()).await?;
+            // Reauthentication uses the same account's store and device so
+            // password login does not throw away its E2EE keys.
+            let destination = crate::login::homeserver::login_server(&cli.user_id, cli.homeserver.as_deref())?;
+            let existing_user = if !cli.user_id.starts_with('@') {
+                crate::accounts::saved().into_iter().find(|account|
+                    account.user_id.localpart() == cli.user_id
+                    && account.homeserver.trim_end_matches('/') == destination.trim_end_matches('/')
+                ).map(|account| account.user_id)
+                .or_else(|| username_to_full_user_id(&cli.user_id, cli.homeserver.as_deref()))
+            } else { username_to_full_user_id(&cli.user_id, cli.homeserver.as_deref()) };
+            let existing = if let Some(user) = existing_user.as_ref() {
+                let path = persistence::session_file_path(user);
+                match tokio::fs::read(path).await {
+                    Ok(bytes) => {
+                        let stored: persistence::FullSessionPersisted = serde_json::from_slice(&bytes)?;
+                        if &stored.user_session.meta.user_id != user { bail!("Saved session belongs to another account"); }
+                        if destination.trim_end_matches('/') != stored.client_session.homeserver.trim_end_matches('/') {
+                            bail!("This identity is already saved on another server address. Choose it from Saved Accounts.");
+                        }
+                        Some(stored)
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+                    Err(error) => return Err(error.into()),
+                }
+            } else { None };
+            let (client, client_session) = if let Some(stored) = existing.as_ref() {
+                let session = stored.client_session.clone();
+                let client = base_client_builder(&persistence::resolve_db_path(session.db_path.clone()), &session.passphrase)
+                    .homeserver_url(&session.homeserver)
+                    .sliding_sync_version_builder(VersionBuilder::DiscoverNative)
+                    .build().await?;
+                (client, session)
+            } else { build_client(cli, app_data_dir()).await? };
             Cx::post_action(LoginAction::Status {
                 title: "Authenticating".into(),
                 status: format!("Logging in as {}...", cli.user_id),
@@ -237,22 +269,22 @@ async fn login(
                 bail!("This server does not offer password sign-in. Use Continue in browser if SSO is available.");
             }
             let identifier = crate::login::homeserver::password_identifier(&cli.user_id)?;
-            client.matrix_auth()
-                .login_identifier(identifier, &cli.password)
-                .initial_device_display_name("Rinx")
+            let auth = client.matrix_auth();
+            let mut builder = auth.login_identifier(identifier, &cli.password);
+            if let Some(stored) = existing.as_ref() { builder = builder.device_id(stored.user_session.meta.device_id.as_str()); }
+            builder.initial_device_display_name("Rinx")
                 .request_refresh_token()
                 .send()
                 .await?;
             if client.matrix_auth().logged_in() {
+                if let Some(stored) = existing.as_ref() {
+                    if client.user_id() != Some(&stored.user_session.meta.user_id) { bail!("Server returned a different account identity"); }
+                }
                 log!("Logged in successfully.");
                 let status = format!("Logged in as {}.\n → Loading rooms...", cli.user_id);
                 // enqueue_popup_notification(status.clone());
                 enqueue_rooms_list_update(RoomsListUpdate::Status { status });
-                if let Err(e) = persistence::save_session(&client, client_session).await {
-                    let err_msg = format!("Failed to save session state to storage: {e}");
-                    error!("{err_msg}");
-                    enqueue_popup_notification(err_msg, PopupKind::Error, None);
-                }
+                persistence::save_session(&client, client_session).await?;
                 Ok((client, None))
             } else {
                 let err_msg = format!("Failed to login as {}", cli.user_id);
@@ -263,9 +295,25 @@ async fn login(
         }
 
         LoginRequest::LoginBySSOSuccess(client, client_session) => {
-            if let Err(e) = persistence::save_session(&client, client_session).await {
-                error!("Failed to save session state to storage: {e:?}");
+            let user = client.user_id().ok_or_else(|| anyhow!("SSO did not return a Matrix identity"))?.to_owned();
+            if persistence::session_file_path(&user).exists() {
+                let saved = persistence::restore_session(Some(user.clone())).await?;
+                // Valid existing SSO login: retain its device and encrypted history.
+                match saved.0.whoami().await {
+                    Ok(_) => {
+                        let _ = tokio::time::timeout(Duration::from_secs(5), client.matrix_auth().logout()).await;
+                        return Ok(saved);
+                    }
+                    Err(error) if matches!(error.client_api_error_kind(), Some(matrix_sdk::ruma::api::error::ErrorKind::UnknownToken { .. } | matrix_sdk::ruma::api::error::ErrorKind::MissingToken)) => {},
+                    Err(error) => return Err(error.into()),
+                }
+                // Preserve the old encryption database for recovery when SSO
+                // necessarily issued a new device after token expiry.
+                let bytes = tokio::fs::read(persistence::session_file_path(&user)).await?;
+                let old: persistence::FullSessionPersisted = serde_json::from_slice(&bytes)?;
+                crate::accounts::retain_database(app_data_dir(), &user, old.client_session).await?;
             }
+            persistence::save_session(&client, client_session).await?;
             Ok((client, None))
         }
     }
@@ -461,6 +509,8 @@ fn robrix_timeline_event_filter(
 pub enum MatrixRequest {
     /// Request from the login screen to log in with the given credentials.
     Login(LoginRequest),
+    ChangeAccount(Option<OwnedUserId>),
+    ClearWorkerSession(tokio::sync::oneshot::Sender<()>),
     /// Request to logout.
     Logout {
         is_desktop: bool,
@@ -845,8 +895,9 @@ pub enum MatrixRequest {
 
 /// Submits a request to the worker thread to be executed asynchronously.
 pub fn submit_async_request(req: MatrixRequest) {
+    if account_changing() && !matches!(req, MatrixRequest::ChangeAccount(_) | MatrixRequest::ClearWorkerSession(_) | MatrixRequest::CancelSsoLogin) { return; }
     if let Some(sender) = REQUEST_SENDER.lock().unwrap().as_ref() {
-        sender.send(req)
+        sender.send((crate::account_session::epoch(), req))
             .expect("BUG: matrix worker task receiver has died!");
     }
 }
@@ -866,7 +917,7 @@ pub fn spawn_async_task<F>(future: F)
 where
     F: Future<Output = ()> + Send + 'static,
 {
-    get_or_create_tokio_runtime().spawn(future);
+    crate::account_session::spawn(future);
 }
 
 /// Details of a login request that get submitted within [`MatrixRequest::Login`].
@@ -889,8 +940,9 @@ pub struct LoginByPassword {
 /// All this task does is wait for [`MatrixRequests`] from the main UI thread
 /// and then executes them within an async runtime context.
 async fn matrix_worker_task(
-    mut request_receiver: UnboundedReceiver<MatrixRequest>,
+    mut request_receiver: UnboundedReceiver<(u64, MatrixRequest)>,
     login_sender: Sender<LoginRequest>,
+    account_sender: UnboundedSender<Option<OwnedUserId>>,
 ) -> Result<()> {
     log!("Started matrix_worker_task.");
 
@@ -903,10 +955,20 @@ async fn matrix_worker_task(
     let download_tasks: Arc<Mutex<HashMap<OwnedMxcUri, ActiveDownload>>> = Arc::new(Mutex::new(HashMap::new()));
 
     let mut sso_task: Option<JoinHandle<()>> = None;
-    while let Some(request) = request_receiver.recv().await {
+    while let Some((epoch, request)) = request_receiver.recv().await {
+        if epoch != crate::account_session::epoch() { continue; }
         match request {
+            MatrixRequest::ChangeAccount(target) => { let _ = account_sender.send(target); }
+            MatrixRequest::ClearWorkerSession(done) => {
+                subscribers_own_user_read_receipts.clear();
+                subscribers_pinned_events.clear();
+                for (_, download) in download_tasks.lock().unwrap().drain() { download.abort_handle.abort(); }
+                sso_task.take();
+                let _ = done.send(());
+            }
             MatrixRequest::Login(login_request) => {
-                if let Err(e) = login_sender.send(login_request).await {
+                if get_client().is_some() || ACCOUNT_CHANGING.load(Ordering::Acquire) { continue; }
+                if let Err(e) = login_sender.try_send(login_request) {
                     error!("Error sending login request to login_sender: {e:?}");
                     Cx::post_action(LoginAction::LoginFailure(String::from(
                         "BUG: failed to send login request to login worker task."
@@ -937,7 +999,7 @@ async fn matrix_worker_task(
                 };
 
                 // Spawn a new async task that will make the actual pagination request.
-                let _paginate_task = Handle::current().spawn(async move {
+                let _paginate_task = crate::account_session::spawn(async move {
                     log!("Starting {direction} pagination request for {timeline_kind}...");
                     if sender.send(TimelineUpdate::PaginationRunning(direction)).is_err() {
                         error!("Failed to send pagination status to UI for {timeline_kind}");
@@ -985,7 +1047,7 @@ async fn matrix_worker_task(
                 };
 
                 // Spawn a new async task that will make the actual edit request.
-                let _edit_task = Handle::current().spawn(async move {
+                let _edit_task = crate::account_session::spawn(async move {
                     log!("Sending request to edit message {timeline_event_item_id:?} in {timeline_kind}...");
                     let result = timeline.edit(&timeline_event_item_id, edited_content).await;
                     match result {
@@ -1015,7 +1077,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     // log!("Sending request to fetch details for event {event_id} in {timeline_kind}...");
                     let result = timeline.fetch_details_for_event(&event_id).await;
                     match &result {
@@ -1043,7 +1105,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     let (num_replies, latest_reply_event) = fetch_thread_summary_details(
                         timeline.room(),
                         &thread_root_event_id,
@@ -1071,7 +1133,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     log!("Sending sync room members request for {timeline_kind}...");
                     timeline.fetch_members().await;
                     let room = timeline.room();
@@ -1101,7 +1163,7 @@ async fn matrix_worker_task(
                     room_info.main_timeline.timeline.clone()
                 };
 
-                let _create_thread_timeline_task = Handle::current().spawn(async move {
+                let _create_thread_timeline_task = crate::account_session::spawn(async move {
                     log!("Creating thread-focused timeline for room {room_id}, thread {thread_root_event_id}...");
                     let build_result = main_room_timeline.room()
                         .timeline_builder()
@@ -1130,7 +1192,7 @@ async fn matrix_worker_task(
                                 backwards_paginate: Vec::new(),
                                 is_timeline_open: true,
                             });
-                            let timeline_subscriber_handler_task = Handle::current().spawn(
+                            let timeline_subscriber_handler_task = crate::account_session::spawn(
                                 timeline_subscriber_handler(
                                     thread_timeline.clone(),
                                     timeline_update_sender.clone(),
@@ -1189,7 +1251,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::Knock { room_or_alias_id, reason, server_names } => {
                 let Some(client) = get_client() else { continue };
-                let _knock_room_task = Handle::current().spawn(async move {
+                let _knock_room_task = crate::account_session::spawn(async move {
                     log!("Sending request to knock on room {room_or_alias_id}...");
                     match client.knock(room_or_alias_id.clone(), reason, server_names).await {
                         Ok(room) => {
@@ -1209,7 +1271,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::InviteUser { room_id, user_id } => {
                 let Some(client) = get_client() else { continue };
-                let _invite_task = Handle::current().spawn(async move {
+                let _invite_task = crate::account_session::spawn(async move {
                     // We use `client.get_room()` here because the room might also be a space,
                     // not just a joined room.
                     if let Some(room) = client.get_room(&room_id) {
@@ -1251,7 +1313,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::JoinRoom { room_id } => {
                 let Some(client) = get_client() else { continue };
-                let _join_room_task = Handle::current().spawn(async move {
+                let _join_room_task = crate::account_session::spawn(async move {
                     log!("Sending request to join room {room_id}...");
                     let known_room = client.get_room(&room_id);
                     let was_invite = known_room.as_ref().is_some_and(|r| r.state() == RoomState::Invited);
@@ -1311,7 +1373,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::LeaveRoom { room_id } => {
                 let Some(client) = get_client() else { continue };
-                let _leave_room_task = Handle::current().spawn(async move {
+                let _leave_room_task = crate::account_session::spawn(async move {
                     log!("Sending request to leave room {room_id}...");
                     let Some(room) = client.get_room(&room_id) else {
                         error!("BUG: client could not get room with ID {room_id}");
@@ -1363,7 +1425,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _get_members_task = Handle::current().spawn(async move {
+                let _get_members_task = crate::account_session::spawn(async move {
                     let send_update = |members: Vec<matrix_sdk::room::RoomMember>, source: &str| {
                         log!("{} {} members for {timeline_kind}", source, members.len());
                         if sender.send(TimelineUpdate::RoomMembersListFetched { members }).is_err() {
@@ -1387,7 +1449,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GetRoomPreview { room_or_alias_id, via, response_mode } => {
                 let Some(client) = get_client() else { continue };
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     let res = fetch_room_preview_with_avatar(&client, &room_or_alias_id, via).await;
                     match response_mode {
                         RoomPreviewResponseMode::Action => {
@@ -1431,7 +1493,7 @@ async fn matrix_worker_task(
                     Cx::post_action(crate::moments::ui::MomentsAction::FileTransfer);
                     continue;
                 }
-                let _create_dm_task = Handle::current().spawn(async move {
+                let _create_dm_task = crate::account_session::spawn(async move {
                     if !crate::matrix_context::is_current(&client) {return;}
                     if let Some(room) = crate::agent_access::find_dm(&client, &user_profile.user_id).await {
                         log!("Found existing DM room: {}", room.room_id());
@@ -1468,7 +1530,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GetUserProfile { user_id, room_id, local_only } => {
                 let Some(client) = get_client() else { continue };
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     // log!("Sending get user profile request: user: {user_id}, \
                     //     room: {room_id:?}, local_only: {local_only}...",
                     // );
@@ -1551,7 +1613,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GetMatchingRooms { query, request_id, owner } => {
                 let Some(client) = get_client() else { continue };
-                let _match_task = Handle::current().spawn(async move {
+                let _match_task = crate::account_session::spawn(async move {
                     let items = rank_matching_rooms(&client, &query).await;
                     Cx::post_action(MentionMatches::new(request_id, owner, items));
                 });
@@ -1565,7 +1627,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _get_unreads_task = Handle::current().spawn(async move {
+                let _get_unreads_task = crate::account_session::spawn(async move {
                     match sender.send(TimelineUpdate::NewUnreadMessagesCount(
                         UnreadMessageCount::Known(timeline.room().num_unread_messages())
                     )) {
@@ -1588,7 +1650,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping set unread flag request for not-yet-known room {room_id}");
                     continue;
                 };
-                let _set_unread_task = Handle::current().spawn(async move {
+                let _set_unread_task = crate::account_session::spawn(async move {
                     let result = main_timeline.room().set_unread_flag(mark_as_unread).await;
                     match result {
                         Ok(_) => {
@@ -1608,7 +1670,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping mark-as-read request for not-yet-known room {room_id}");
                     continue;
                 };
-                let _mark_read_task = Handle::current().spawn(async move {
+                let _mark_read_task = crate::account_session::spawn(async move {
                     let Some(latest_event_id) = main_timeline.latest_event_id().await else {
                         if main_timeline.room().num_unread_messages() > 0 {
                             warning!("Room {room_id} has unread messages but no timeline events, so we can only clear its unread flag.");
@@ -1650,7 +1712,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping set favorite flag request for not-yet-known room {room_id}");
                     continue;
                 };
-                let _set_favorite_task = Handle::current().spawn(async move {
+                let _set_favorite_task = crate::account_session::spawn(async move {
                     let result = main_timeline.room().set_is_favourite(is_favorite, None).await;
                     match result {
                         Ok(_) => log!("Set favorite to {} for room {}", is_favorite, room_id),
@@ -1664,7 +1726,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping set low priority flag request for not-yet-known room {room_id}");
                     continue;
                 };
-                let _set_lp_task = Handle::current().spawn(async move {
+                let _set_lp_task = crate::account_session::spawn(async move {
                     let result = main_timeline.room().set_is_low_priority(is_low_priority, None).await;
                     match result {
                         Ok(_) => log!("Set low priority to {} for room {}", is_low_priority, room_id),
@@ -1675,7 +1737,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::SetRoomNotificationMode { room_id, mode } => {
                 let Some(client) = get_client() else { continue };
-                Handle::current().spawn(async move {
+                crate::account_session::spawn(async move {
                     let settings = client.notification_settings().await;
                     let result = match mode {
                         Some(mode) => settings.set_room_notification_mode(&room_id, mode).await,
@@ -1696,7 +1758,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::SetAvatar { avatar_url } => {
                 let Some(client) = get_client() else { continue };
-                let _set_avatar_task = Handle::current().spawn(async move {
+                let _set_avatar_task = crate::account_session::spawn(async move {
                     let is_removing = avatar_url.is_none();
                     log!("Sending request to {} avatar...", if is_removing { "remove" } else { "set" });
                     let result = client.account().set_avatar_url(avatar_url.as_deref()).await;
@@ -1715,7 +1777,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::UploadAvatar { file_data } => {
                 let Some(client) = get_client() else { continue };
-                let _upload_avatar_task = Handle::current().spawn(async move {
+                let _upload_avatar_task = crate::account_session::spawn(async move {
                     let name = file_data.file_name();
                     let size = utils::format_decimal_file_size(file_data.size);
                     log!("Uploading new avatar image {name} ({} bytes)...", file_data.size);
@@ -1748,7 +1810,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::SetDisplayName { new_display_name } => {
                 let Some(client) = get_client() else { continue };
-                let _set_display_name_task = Handle::current().spawn(async move {
+                let _set_display_name_task = crate::account_session::spawn(async move {
                     let is_removing = new_display_name.is_none();
                     log!("Sending request to {} display name{}...",
                         if is_removing { "remove" } else { "set" },
@@ -1776,7 +1838,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GetOwnDevice => {
                 let Some(client) = get_client() else { continue };
-                let _get_own_device_task = Handle::current().spawn(async move {
+                let _get_own_device_task = crate::account_session::spawn(async move {
                     let device = match client.encryption().get_own_device().await {
                         Ok(device) => device,
                         Err(e) => {
@@ -1790,7 +1852,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GetAccountManagementUrl => {
                 let Some(client) = get_client() else { continue };
-                let _account_management_url_task = Handle::current().spawn(async move {
+                let _account_management_url_task = crate::account_session::spawn(async move {
                     // Only homeservers that use oauth have an account management page.
                     let url = match client.oauth().cached_server_metadata().await {
                         Ok(md) => {
@@ -1816,14 +1878,14 @@ async fn matrix_worker_task(
 
             MatrixRequest::RequestSelfVerification => {
                 let Some(client) = get_client() else { continue };
-                let _verify_task = Handle::current().spawn(
+                let _verify_task = crate::account_session::spawn(
                     crate::verification::request_self_verification_handler(client)
                 );
             }
 
             MatrixRequest::GetRoomDiagnostics { room_id } => {
                 let Some(client) = get_client() else { continue };
-                let _diagnostics_task = Handle::current().spawn(async move {
+                let _diagnostics_task = crate::account_session::spawn(async move {
                     use std::fmt::Write as _;
                     let mut text = format!("Rinx diagnostics for room {room_id}\n");
                     let _ = writeln!(text, "Rinx version: {}", env!("CARGO_PKG_VERSION"));
@@ -1915,7 +1977,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::ClearEventCache => {
                 let Some(client) = get_client() else { continue };
-                let _clear_cache_task = Handle::current().spawn(async move {
+                let _clear_cache_task = crate::account_session::spawn(async move {
                     match client.event_cache().clear_all_rooms().await {
                         Ok(()) => enqueue_popup_notification(
                             "Cleared all rooms' cached events.\n\n\
@@ -1934,7 +1996,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::GenerateMatrixLink { room_id, event_id, use_matrix_scheme, join_on_click } => {
                 let Some(client) = get_client() else { continue };
-                let _gen_link_task = Handle::current().spawn(async move {
+                let _gen_link_task = crate::account_session::spawn(async move {
                     if let Some(room) = client.get_room(&room_id) {
                         let result = if use_matrix_scheme {
                             if let Some(event_id) = event_id {
@@ -1966,7 +2028,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::BlockUser { block, user_id } => {
                 let Some(client) = get_client() else { continue };
-                let _block_task = Handle::current().spawn(async move {
+                let _block_task = crate::account_session::spawn(async move {
                     log!("Sending request to {}block user: {user_id}...", if block { "" } else { "un" });
                     let block_result = if block {
                         client.account().ignore_user(&user_id).await
@@ -2000,7 +2062,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping send typing notice request for not-yet-known room {room_id}");
                     continue;
                 };
-                let _typing_task = Handle::current().spawn(async move {
+                let _typing_task = crate::account_session::spawn(async move {
                     if let Err(e) = main_room_timeline.room().typing_notice(typing).await {
                         error!("Failed to send typing notice to room {room_id}: {e:?}");
                     }
@@ -2032,7 +2094,7 @@ async fn matrix_worker_task(
                     (main_timeline, jrd.main_timeline.timeline_update_sender.clone(), receiver)
                 };
 
-                let _typing_notices_task = Handle::current().spawn(async move {
+                let _typing_notices_task = crate::account_session::spawn(async move {
                     while let Ok(user_ids) = typing_notice_receiver.recv().await {
                         // log!("Received typing notifications for room {room_id}: {user_ids:?}");
                         let users = join_all(user_ids.into_iter().map(|user_id| {
@@ -2067,7 +2129,7 @@ async fn matrix_worker_task(
                 };
 
                 let task_room_id = room_id.clone();
-                let subscribe_own_read_receipt_task = Handle::current().spawn(async move {
+                let subscribe_own_read_receipt_task = crate::account_session::spawn(async move {
                     let update_receiver = timeline.subscribe_own_user_read_receipts_changed().await;
                     pin_mut!(update_receiver);
 
@@ -2105,7 +2167,7 @@ async fn matrix_worker_task(
                     log!("BUG: skipping subscribe to pinned events request for unknown room {room_id}");
                     continue;
                 };
-                let subscribe_pinned_events_task = Handle::current().spawn(async move {
+                let subscribe_pinned_events_task = crate::account_session::spawn(async move {
                     // Send an initial update, as the stream may not update immediately.
                     let pinned_events = main_timeline.room().pinned_event_ids().unwrap_or_default();
                     match sender.send(TimelineUpdate::PinnedEvents(pinned_events)) {
@@ -2129,7 +2191,7 @@ async fn matrix_worker_task(
             MatrixRequest::SpawnSSOServer { homeserver_url, provider_id, register } => {
                 if sso_task.as_ref().is_some_and(|task| !task.is_finished()) { continue; }
                 let sender = login_sender.clone();
-                sso_task = Some(Handle::current().spawn(async move {
+                sso_task = Some(crate::account_session::spawn(async move {
                     match run_sso_login(homeserver_url, provider_id, register).await {
                         Ok((client, session)) => {
                             Cx::post_action(LoginAction::SsoPending(false));
@@ -2150,7 +2212,7 @@ async fn matrix_worker_task(
             MatrixRequest::RegisterAccount { homeserver_url, username, password, token } => {
                 if sso_task.as_ref().is_some_and(|task| !task.is_finished()) { continue; }
                 let sender = login_sender.clone();
-                sso_task = Some(Handle::current().spawn(async move {
+                sso_task = Some(crate::account_session::spawn(async move {
                     match run_registration(homeserver_url, username, password, token).await {
                         Ok((client, session)) => {
                             Cx::post_action(LoginAction::Status {
@@ -2177,7 +2239,7 @@ async fn matrix_worker_task(
 
             MatrixRequest::FetchAvatar { mxc_uri, on_fetched } => {
                 let Some(client) = get_client() else { continue };
-                Handle::current().spawn(async move {
+                crate::account_session::spawn(async move {
                     // log!("Sending fetch avatar request for {mxc_uri:?}...");
                     let media_request = MediaRequestParameters {
                         source: MediaSource::Plain(mxc_uri.clone()),
@@ -2201,7 +2263,7 @@ async fn matrix_worker_task(
             MatrixRequest::FetchMedia { media_request, on_fetched, destination, update_sender } => {
                 let Some(client) = get_client() else { continue };
                 
-                let _fetch_task = Handle::current().spawn(async move {
+                let _fetch_task = crate::account_session::spawn(async move {
                     // log!("Sending fetch media request for {media_request:?}...");
                     let res = client.media().get_media_content(&media_request, true).await;
                     on_fetched(&destination, media_request, res, update_sender);
@@ -2223,7 +2285,7 @@ async fn matrix_worker_task(
                     continue;
                 };
                 let room_id = timeline_kind.room_id().to_owned();
-                let _send_verdict_task = Handle::current().spawn(async move {
+                let _send_verdict_task = crate::account_session::spawn(async move {
                     let room = timeline.room();
                     use crate::agent_chat::approval_state::SendResult;
                     let fail = |error: String, result: SendResult| {
@@ -2275,7 +2337,7 @@ async fn matrix_worker_task(
                 };
 
                 // Spawn a new async task that will send the actual message.
-                let _send_message_task = Handle::current().spawn(async move {
+                let _send_message_task = crate::account_session::spawn(async move {
                     log!("Sending message to {timeline_kind}: {message:?}...");
                     let message = {
                         #[cfg(not(feature = "tsp"))] {
@@ -2387,7 +2449,7 @@ async fn matrix_worker_task(
                 let sender_clone = sender.clone();
                 let (abort_handle, abort_registration) = futures_util::future::AbortHandle::new_pair();
                 // Spawn a new async task to send the attachment.
-                let _send_attachment_task = Handle::current().spawn(async move {
+                let _send_attachment_task = crate::account_session::spawn(async move {
                     use matrix_sdk::attachment::{
                         AttachmentInfo,
                         BaseFileInfo, BaseImageInfo, BaseVideoInfo, BaseAudioInfo,
@@ -2591,7 +2653,7 @@ async fn matrix_worker_task(
 
                 // Unread counts get refreshed by the own_user_read_receipts subscriber,
                 // so we don't need to send any updates to the UI here.
-                let _send_rr_task = Handle::current().spawn(async move {
+                let _send_rr_task = crate::account_session::spawn(async move {
                     match timeline.send_single_receipt(receipt_type.clone(), event_id.clone()).await {
                         Ok(sent) => log!("{} {receipt_type} read receipt to {timeline_kind} for event {event_id}", if sent { "Sent" } else { "Already sent" }),
                         Err(_e) => {
@@ -2616,7 +2678,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _get_rr_task = Handle::current().spawn(async move {
+                let _get_rr_task = crate::account_session::spawn(async move {
                     let mut event_id = timeline.latest_user_read_receipt_timeline_event_id(&user_id).await;
                     if event_id.is_none() {
                         // Some timeline events aren't separately visible, like edits or reactions,
@@ -2658,7 +2720,7 @@ async fn matrix_worker_task(
 
                 let Some(user_id) = current_user_id() else { continue };
 
-                let _power_levels_task = Handle::current().spawn(async move {
+                let _power_levels_task = crate::account_session::spawn(async move {
                     match timeline.room().power_levels().await {
                         Ok(power_levels) => {
                             log!("Successfully fetched power levels for {timeline_kind}.");
@@ -2682,7 +2744,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _toggle_reaction_task = Handle::current().spawn(async move {
+                let _toggle_reaction_task = crate::account_session::spawn(async move {
                     log!("Sending toggle reaction {reaction:?} to {timeline_kind}: ...");
                     match timeline.toggle_reaction(&timeline_event_id, &reaction).await {
                         Ok(_send_handle) => {
@@ -2700,7 +2762,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _redact_task = Handle::current().spawn(async move {
+                let _redact_task = crate::account_session::spawn(async move {
                     match timeline.redact(&timeline_event_id, reason.as_deref()).await {
                         Ok(()) => log!("Requested redaction of {timeline_event_id:?} in {timeline_kind}."),
                         Err(e) => {
@@ -2723,7 +2785,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _retry_task = Handle::current().spawn(async move {
+                let _retry_task = crate::account_session::spawn(async move {
                     let items = timeline.items().await;
                     let event_tl_item = items.iter().rev()
                         .find_map(|item| item.as_event().filter(|ev| ev.identifier() == timeline_event_id));
@@ -2763,7 +2825,7 @@ async fn matrix_worker_task(
                     continue;
                 };
 
-                let _pin_task = Handle::current().spawn(async move {
+                let _pin_task = crate::account_session::spawn(async move {
                     let room = timeline.room();
                     let result = if pin {
                         room.pin_event(&event_id).await
@@ -2778,7 +2840,7 @@ async fn matrix_worker_task(
             }
 
             MatrixRequest::GetUrlPreview { url, on_fetched, destination, update_sender } => {
-                let _fetch_url_preview_task = Handle::current().spawn(async move {
+                let _fetch_url_preview_task = crate::account_session::spawn(async move {
                     let result: Result<LinkPreviewData, UrlPreviewError> = async {
                         let client = get_client().ok_or(UrlPreviewError::ClientNotAvailable)?;
                         let request = get_media_preview::v1::Request::new(url);
@@ -2843,7 +2905,7 @@ async fn matrix_worker_task(
                     mxc_uri,
                     ActiveDownload { abort_handle, on_download_result },
                 );
-                Handle::current().spawn(async move {
+                crate::account_session::spawn(async move {
                     if Abortable::new(download_future, abort_registration).await.is_err() {
                         if let Some(active) = download_tasks3.lock().unwrap().remove(&mxc_uri3) {
                             (active.on_download_result)(MediaDownloadResult::Cancelled);
@@ -2867,7 +2929,7 @@ async fn matrix_worker_task(
 
 
 /// Returns the global Tokio runtime, creating it on first use.
-fn get_or_create_tokio_runtime() -> &'static tokio::runtime::Runtime {
+pub(crate) fn backend_runtime() -> &'static tokio::runtime::Runtime {
     /// The single global Tokio runtime that is used by all async tasks.
     static TOKIO_RUNTIME: LazyLock<tokio::runtime::Runtime> = LazyLock::new(||
         tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime")
@@ -2878,7 +2940,7 @@ fn get_or_create_tokio_runtime() -> &'static tokio::runtime::Runtime {
 
 /// The sender used by [`submit_async_request`] to send requests to the async worker thread.
 /// Currently there is only one, but it can be cloned if we need more concurrent senders.
-static REQUEST_SENDER: Mutex<Option<UnboundedSender<MatrixRequest>>> = Mutex::new(None);
+static REQUEST_SENDER: Mutex<Option<UnboundedSender<(u64, MatrixRequest)>>> = Mutex::new(None);
 
 /// Handle to the in-flight `ASWebAuthenticationSession`. Set when the auth
 /// sheet is presented, cleared by the completion callback or by
@@ -2908,7 +2970,7 @@ pub fn block_on_async_with_timeout<T>(
     timeout: Option<Duration>,
     async_future: impl Future<Output = T>,
 ) -> Result<T, Elapsed> {
-    let rt = get_or_create_tokio_runtime().handle().clone();
+    let rt = backend_runtime().handle().clone();
 
     if let Some(timeout) = timeout {
         rt.block_on(async {
@@ -2925,7 +2987,7 @@ pub fn block_on_async_with_timeout<T>(
 ///
 /// Returns a handle to the Tokio runtime that is used to run async background tasks.
 pub fn start_matrix_tokio() -> Result<tokio::runtime::Handle> {
-    let rt_handle = get_or_create_tokio_runtime().handle().clone();
+    let rt_handle = backend_runtime().handle().clone();
 
     let rt = rt_handle.clone();
     // Spawn the main async task that drives the Matrix client SDK and
@@ -3006,7 +3068,7 @@ impl PerTimelineDetails {
             TimelineSubscriber::Running(_) => return,
         };
         // this fn might be called from a regular OS thread with no async context, so don't use `Handle::spawn()`
-        let task = get_or_create_tokio_runtime().spawn(timeline_subscriber_handler(
+        let task = crate::account_session::spawn(timeline_subscriber_handler(
             self.timeline.clone(),
             self.timeline_update_sender.clone(),
             request_receiver,
@@ -3203,7 +3265,7 @@ pub fn set_sync_service_desired_running(running: bool, reason: &'static str) {
         return;
     }
 
-    get_or_create_tokio_runtime().spawn(apply_sync_service_desired_state(reason));
+    crate::account_session::spawn(apply_sync_service_desired_state(reason));
 }
 
 async fn apply_sync_service_desired_state(reason: &'static str) {
@@ -3437,19 +3499,25 @@ async fn abort_and_await_handles(handles: &mut Vec<JoinHandle<()>>) {
 /// After starting the sync service, this also starts the main room list service loop
 /// and the main space service loop.
 async fn start_matrix_client_login_and_sync(rt: Handle) {
+    if let Err(error) = crate::accounts::refresh() {
+        Cx::post_action(LoginAction::LoginFailure(format!("Could not load saved accounts: {error}")));
+        // Never prune databases when discovery or migration failed.
+    } else {
+        persistence::cleanup_orphan_db_dirs().await;
+    }
     // Run clean up before anything else, like creating new db dirs.
-    persistence::cleanup_orphan_db_dirs().await;
 
     // Create a channel for sending requests from the main UI thread to a background worker task.
-    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<MatrixRequest>();
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel::<(u64, MatrixRequest)>();
     REQUEST_SENDER.lock().unwrap().replace(sender);
 
+    let (account_sender, mut account_receiver) = tokio::sync::mpsc::unbounded_channel();
     let (login_sender, mut login_receiver) = tokio::sync::mpsc::channel(1);
 
     // Spawn the async worker task that handles matrix requests.
     // We must do this now such that the matrix worker task can listen for incoming login requests
     // from the UI, and forward them to this task (via the login_sender --> login_receiver).
-    let mut matrix_worker_task_handle = rt.spawn(matrix_worker_task(receiver, login_sender));
+    let mut matrix_worker_task_handle = rt.spawn(matrix_worker_task(receiver, login_sender, account_sender));
 
     let most_recent_user_id = persistence::most_recent_user_id().await;
     log!("Most recent user ID: {most_recent_user_id:?}");
@@ -3522,7 +3590,30 @@ async fn start_matrix_client_login_and_sync(rt: Handle) {
             None => {
                 loop {
                     log!("Waiting for login request...");
-                    match login_receiver.recv().await {
+                    let request = tokio::select! {
+                        request = login_receiver.recv() => request,
+                        target = account_receiver.recv() => {
+                            if let Some(target) = target {
+                                crate::account_session::close().await;
+                                if let Err(error) = change_account_ui().await {
+                                    Cx::post_action(LoginAction::LoginFailure(error.to_string()));
+                                    // Fail closed: a different account must not start
+                                    // until the old UI has acknowledged cleanup.
+                                    return;
+                                }
+                                crate::account_session::open();
+                                ACCOUNT_CHANGING.store(false, Ordering::Release);
+                                if let Some(user) = target {
+                                    match persistence::restore_session(Some(user)).await {
+                                        Ok(session) => break session,
+                                        Err(error) => Cx::post_action(LoginAction::LoginFailure(format!("Could not restore this account. Sign in again or choose another saved account.\n\n{error}"))),
+                                    }
+                                }
+                            }
+                            continue;
+                        }
+                    };
+                    match request {
                         Some(login_request) => {
                             match login(&cli, login_request).await {
                                 Ok((client, sync_token)) => break (client, sync_token),
@@ -3574,7 +3665,7 @@ async fn start_matrix_client_login_and_sync(rt: Handle) {
 
         // Listen for updates to the blocked user list.
         subscriber_task_handles.push(handle_blocked_user_list_subscriber(client.clone()));
-        subscriber_task_handles.push(rt.spawn(crate::moments::dm_sharing::dm_sharing_loop()));
+        subscriber_task_handles.push(crate::account_session::spawn(crate::moments::dm_sharing::dm_sharing_loop()));
         subscriber_task_handles.push(handle_room_notification_subscriber(client.clone()));
 
         // Listen for session changes, e.g., when the access token becomes invalid.
@@ -3635,16 +3726,21 @@ async fn start_matrix_client_login_and_sync(rt: Handle) {
         client.send_queue().enable_upload_progress(true);
         client.send_queue().set_enabled(true).await;
 
-        let mut room_list_service_task = rt.spawn(room_list_service_loop(room_list_service));
-        let mut space_service_task = rt.spawn(space_service_loop(client));
+        let mut room_list_service_task = crate::account_session::spawn(room_list_service_loop(room_list_service));
+        let mut space_service_task = crate::account_session::spawn(space_service_loop(client.clone()));
         // If the space service fails, we shouldn't kill everything, room sync can still happen.
         let mut is_space_service_alive = true;
 
         // Now, this task becomes an infinite loop that monitors the state of the
         // three core matrix-related background tasks that we just spawned above.
+        let mut account_change = None;
         #[allow(clippy::never_loop)] // unsure if needed, just following tokio's examples.
         loop {
             tokio::select! {
+                target = account_receiver.recv() => {
+                    account_change = target;
+                    break;
+                }
                 // If we were notified but it got cancelled, check the TOKEN_EXPIRED bool.
                 _ = TOKEN_EXPIRED_NOTIFY.notified() => {
                     if !TOKEN_EXPIRED.load(Ordering::Acquire) {
@@ -3728,9 +3824,48 @@ async fn start_matrix_client_login_and_sync(rt: Handle) {
             }
         }
 
+        if let Some(target) = account_change {
+            // Freeze launches, stop the SDK and drain old callbacks before clearing
+            // globals/UI. Switching never sends Matrix logout or removes keys.
+            client.send_queue().set_enabled(false).await;
+            if let Some(service) = get_sync_service() { service.stop().await; }
+            crate::account_session::close().await;
+            let (done, ready) = tokio::sync::oneshot::channel();
+            submit_async_request(MatrixRequest::ClearWorkerSession(done));
+            let _ = ready.await;
+            while login_receiver.try_recv().is_ok() {}
+            if let Err(error) = change_account_ui().await {
+                Cx::post_action(LoginAction::LoginFailure(error.to_string()));
+                return;
+            }
+            crate::account_session::open();
+            ACCOUNT_CHANGING.store(false, Ordering::Release);
+            if let Some(user) = target {
+                match persistence::restore_session(Some(user)).await {
+                    Ok(session) => initial_client_opt = Some(session),
+                    Err(error) => Cx::post_action(LoginAction::LoginFailure(format!("Could not restore this account. Sign in again or choose another saved account.\n\n{error}"))),
+                }
+            }
+            continue 'login_loop;
+        }
         let was_token_expired = TOKEN_EXPIRED.load(Ordering::Acquire);
         let was_logout = is_logout_in_progress();
         if was_token_expired || was_logout {
+            if was_token_expired && !was_logout {
+                client.send_queue().set_enabled(false).await;
+                if let Some(service) = get_sync_service() { service.stop().await; }
+                crate::account_session::close().await;
+                let (done, ready) = tokio::sync::oneshot::channel();
+                submit_async_request(MatrixRequest::ClearWorkerSession(done));
+                let _ = ready.await;
+                if let Err(error) = change_account_ui().await {
+                    ACCOUNT_CHANGING.store(true, Ordering::Release);
+                    Cx::post_action(LoginAction::LoginFailure(error.to_string()));
+                    return;
+                }
+                crate::account_session::open();
+                Cx::post_action(LoginAction::LoginFailure("This account's session expired. Sign in again or choose another saved account.".into()));
+            }
             if was_token_expired {
                 log!("Token expired; cleaning up session state and waiting for re-login.");
             } else {
@@ -4481,7 +4616,7 @@ fn set_blocked_users(new_list: HashSet<OwnedUserId, ConstHasher>) {
 /// so the caller should abort+await it upon logout to ensure the Client gets dropped.
 fn handle_blocked_user_list_subscriber(client: Client) -> JoinHandle<()> {
     let mut subscriber = client.subscribe_to_ignore_user_list_changes();
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         if let Some(initial_list) = current_blocked_user_list(&client).await {
             log!("Initial blocked-user list is: {initial_list:?}");
             set_blocked_users(initial_list);
@@ -4502,7 +4637,7 @@ fn handle_blocked_user_list_subscriber(client: Client) -> JoinHandle<()> {
 /// Keep row indicators in sync with push-rule edits from this or another
 /// session. The session owner aborts and awaits this task during logout.
 fn handle_room_notification_subscriber(client: Client) -> JoinHandle<()> {
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         let settings = client.notification_settings().await;
         let mut changes = settings.subscribe_to_changes();
         loop {
@@ -4526,7 +4661,7 @@ fn handle_room_notification_subscriber(client: Client) -> JoinHandle<()> {
 /// so that the app can restore preferences and the dock layout (on desktop).
 /// We emit this action even if the dock state is empty to ensure that prefs always get restored.
 fn handle_load_app_state(user_id: OwnedUserId) {
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         match load_app_state(&user_id).await {
             Ok(Some(app_state)) => {
                 log!("Loaded app state from persistent storage. Restoring now...");
@@ -4572,7 +4707,7 @@ fn is_invalid_token_error(e: &sync_service::Error) -> bool {
 /// so the user is prompted to log in again.
 fn handle_session_changes(client: Client) -> JoinHandle<()> {
     let mut receiver = client.subscribe_to_session_changes();
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         loop {
             match receiver.recv().await {
                 Ok(SessionChange::UnknownToken(data)) => {
@@ -4626,7 +4761,7 @@ enum LocalSendKind {
 /// room's queue, though the failed request still blocks anything queued after it.
 fn handle_send_queue_subscriber(client: Client) -> JoinHandle<()> {
     let mut updates = client.send_queue().subscribe();
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         // Failed edits, reactions, and deletions from a previous run would block their room's queue.
         match client.send_queue().local_echoes().await {
             Ok(echoes) => for (_, echoes) in echoes { cancel_hidden_failed_sends(echoes).await },
@@ -4772,7 +4907,7 @@ async fn cancel_hidden_failed_sends(echoes: Vec<LocalEcho>) {
 
 fn handle_sync_service_state_subscriber(mut subscriber: Subscriber<sync_service::State>) -> JoinHandle<()> {
     log!("Initial sync service state is {:?}", subscriber.get());
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         while let Some(state) = subscriber.next().await {
             log!("Received a sync service state update: {state:?}");
             match state {
@@ -4840,7 +4975,7 @@ fn handle_sync_indicator_subscriber(sync_service: &SyncService) -> JoinHandle<()
             SYNC_INDICATOR_HIDE_DELAY
         );
 
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
        let mut sync_indicator_stream = std::pin::pin!(sync_indicator_stream);
 
         while let Some(indicator) = sync_indicator_stream.next().await {
@@ -4855,7 +4990,7 @@ fn handle_sync_indicator_subscriber(sync_service: &SyncService) -> JoinHandle<()
 
 fn handle_room_list_service_loading_state(mut loading_state: Subscriber<RoomListLoadingState>) {
     log!("Initial room list loading state is {:?}", loading_state.get());
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         while let Some(state) = loading_state.next().await {
             log!("Received a room list loading state update: {state:?}");
             match state {
@@ -4883,7 +5018,7 @@ fn spawn_fetch_successor_room_preview(
     tombstoned_room_id: OwnedRoomId,
     timeline_update_senders: Vec<crossbeam_channel::Sender<TimelineUpdate>>,
 ) {
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         log!("Updating room {tombstoned_room_id} to be tombstoned, {successor_room:?}");
         let srd = if let Some(SuccessorRoom { room_id, reason }) = successor_room {
             match fetch_room_preview_with_avatar(
@@ -5762,7 +5897,7 @@ fn spawn_fetch_room_avatar_inner(room: Room, room_name_id: RoomNameId) {
     // as they can be expensive and max out the CPUs.
     static ROOM_AVATAR_FETCH_LIMIT: Semaphore = Semaphore::const_new(8);
 
-    Handle::current().spawn(async move {
+    crate::account_session::spawn(async move {
         let Ok(_permit) = ROOM_AVATAR_FETCH_LIMIT.acquire().await else { return };
         let room_id = room_name_id.room_id().clone();
         let room_avatar = room_avatar(&room, &room_name_id).await;
@@ -6138,6 +6273,10 @@ impl UserPowerLevels {
 /// Keeps `REQUEST_SENDER` alive, and also the `matrix_worker_task
 /// which needs to keep running to receive the next login request.
 pub async fn clear_app_state(config: &LogoutConfig) -> Result<()> {
+    crate::account_session::close().await;
+    let (done, ready) = tokio::sync::oneshot::channel();
+    submit_async_request(MatrixRequest::ClearWorkerSession(done));
+    let _ = ready.await;
     replace_client(None);
     SYNC_SERVICE.lock().unwrap().take();
     SYNC_SERVICE_ASSUMED_RUNNING.store(false, Ordering::Release);
@@ -6151,9 +6290,47 @@ pub async fn clear_app_state(config: &LogoutConfig) -> Result<()> {
 
     match tokio::time::timeout(config.app_state_cleanup_timeout, on_clear_appstate.notified()).await {
         Ok(_) => {
+            crate::account_session::open();
+            let _ = crate::accounts::refresh();
             log!("Received signal that UI-side app state was cleaned successfully");
             Ok(())
         }
         Err(_) => Err(anyhow!("Timed out waiting for UI-side app state cleanup")),
     }
+}
+
+
+static ACCOUNT_CHANGING: AtomicBool = AtomicBool::new(false);
+pub fn account_changing() -> bool { ACCOUNT_CHANGING.load(Ordering::Acquire) }
+
+pub fn request_account_change(target: Option<OwnedUserId>) -> bool {
+    if is_logout_in_progress() || target.as_ref().is_some_and(|id| current_user_id().as_ref() == Some(id)) { return false; }
+    // The experimental TSP wallet service still has process-wide identity state.
+    // Refuse a switch until that independent service gains an account boundary.
+    if cfg!(feature = "tsp") {
+        enqueue_popup_notification("Account switching is unavailable in builds with experimental TSP wallets.", PopupKind::Error, None);
+        return false;
+    }
+    if REQUEST_SENDER.lock().unwrap().is_none() { return false; }
+    if ACCOUNT_CHANGING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() { return false; }
+    #[cfg(target_os = "ios")]
+    cancel_active_sso_auth_session();
+    submit_async_request(MatrixRequest::ChangeAccount(target));
+    true
+}
+
+async fn change_account_ui() -> Result<()> {
+    let _ = replace_client(None);
+    SYNC_SERVICE.lock().unwrap().take();
+    SYNC_SERVICE_ASSUMED_RUNNING.store(false, Ordering::Release);
+    set_blocked_users(HashSet::default());
+    ALL_JOINED_ROOMS.lock().unwrap().clear();
+    OWN_DISPLAY_NAME.lock().unwrap().take();
+    let on_clear_appstate = Arc::new(Notify::new());
+    Cx::post_action(LogoutAction::ClearAppState { on_clear_appstate: on_clear_appstate.clone() });
+    tokio::time::timeout(Duration::from_secs(15), on_clear_appstate.notified()).await
+        .map_err(|_| anyhow!("Timed out clearing the previous account. Please restart Rinx."))?;
+    Cx::post_action(crate::home::navigation_tab_bar::NavigationBarAction::CloseSettings);
+    Cx::post_action(LoginAction::AccountPickerReady);
+    Ok(())
 }

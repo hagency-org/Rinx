@@ -79,6 +79,7 @@ pub fn get_invited_rooms(_cx: &mut Cx) -> Rc<RefCell<HashMap<OwnedRoomId, Invite
 /// which isn't used, but acts as a guarantee that this function
 /// must only be called by the main UI thread.
 pub fn clear_all_invited_rooms(_cx: &mut Cx) {
+    while PENDING_ROOM_UPDATES.pop().is_some() {}
     ALL_INVITED_ROOMS.with(|rooms| {
        rooms.borrow_mut().clear();
     });

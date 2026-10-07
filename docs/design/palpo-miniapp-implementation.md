@@ -1,89 +1,122 @@
-# ADR 0010 implementation checkpoint
+# ADR 0010 / 0011 implementation checkpoint
 
-> This records validation of the earlier implementation, not acceptance of
-> [ADR 0011](../adr/0011-hagency-server-engagements.md). Rust workflow migration,
-> multiple server engagements, coordinator-only project approvals, automatic
-> execution of mini-app agent decisions and the hierarchical budget remain open.
+The current implementation follows [ADR 0011](../adr/0011-hagency-server-engagements.md).
+Palpo Operations is now a Rust service; Hagency owns engagement resources,
+reservations, provisioning and runtime observations. Rinx supplies native
+credential custody and the production OctoScript screens. The dated sections
+below retain earlier evidence and do not describe the current architecture.
 
-The user-facing main build remains separate from this development branch. This
-implementation builds on the shared Rinx theme branch and the latest reviewed
-OctoScript App Design Flow (0e59346e). The bundle was created with `octo new`;
-the new host services were implemented in their owning repositories before
-the bundle used them. The shared contract starts from App Hub main 2bcb898.
+## Current implementation
 
-## Implemented
+- Hagency initiates an association. The designated Matrix administrator decides
+  it in Rinx; the assigned engagement coordinator decides projects and agents.
+  Matrix administration and project ownership do not confer coordinator authority.
+- Independent engagement profiles, transport generations and supervised workers
+  support multiple engagements with the same homeserver. Rotation preserves the
+  appservice registration generation, approved requests and agent identities.
+- Resources have explicit parent capacity and engagement allocations. Concurrent
+  decisions, top-ups and replays use the runtime's transactional ledger. Unknown
+  consumption retains its reservation, including after retirement.
+- An approved agent is provisioned automatically through the native factory.
+  Runtime ownership and current DM/project routes are required for Ready. The
+  UI distinguishes pending delivery, provisioning, uncertain/failed setup,
+  unavailable, paused and retired agents. Pause, resume, rename, top-up and
+  verified runtime/Matrix cleanup use scoped commands and durable receipts.
+- Palpo's Rust service supplies borrowed Matrix sessions, exact capability
+  grants, current role checks, durable Inbox/audit/outbox, signup reconciliation,
+  association administration, profile export, connection probes, notifications,
+  reminders, quiet hours and personal My Actions rooms.
+- My Actions embeds the installed app only after account/bundle consent and
+  backend verification of the private room. It retains a chat-history fallback.
+  Reading or dismissing a notice does not decide its request. HTTPS action links
+  must match the current homeserver; custom Rinx links carry only an action ID.
+- Project creation can prepare a new room or use the host-owned selector for an
+  eligible existing room. The selector filters current joined rooms by creator
+  and privacy; Palpo rechecks authoritative state when submitting. Splash never
+  receives the Matrix credential.
+- Native export uses an account lease through the final write. Desktop uses a
+  private atomic replacement; Android checks current authorization before its
+  document provider is opened; OpenHarmony uses a native picker/descriptor bridge.
+  Splash receives saved/cancelled status, never profile bytes.
+- Legacy Node state is retained with stable IDs and immutable history. Native
+  receipts support adoption without reallocating approved work. Legacy project
+  continuation uses the original request and current explicit resource grants.
+  Old contribution and agent-identity bypass routes are retired under ADR 0011.
 
-- A built-in Palpo Splash app in `apps/palpo`: member/admin navigation, persistent
-  drafts, Inbox views and pagination, contribution/project requests, decisions,
-  owner activation, named-agent requests, fleet and Matrix-identity operations.
-- Shared Rinx semantic colors, fonts, controls and live theme reapply. Theme
-  changes preserve the script heap, forms, focus, selection, undo and request IDs.
-- Exact `palpo.*` service grants in App Contract 1.2, consent bound to the active
-  account and exact build-owned bundle digest, and revocable instance leases.
-- A native adapter bound to the authenticated homeserver origin. Matrix/app
-  credentials stay outside Splash. The owner-only configuration result goes
-  directly to a native save dialog; the script receives only saved/cancelled.
-- Palpo's passwordless app-session adapter, durable SQLite approval records,
-  resource grants, audit/outbox, private My Actions notification rooms and reminders.
-  Same-origin action links in Rinx open the latest server-authorized action.
+`PALPO_PROJECT_APPROVAL_REQUIRED` and implicit grandfathered project authority are
+not the new workflow's security model. Rust enforces the coordinator/grant gates
+on every supported path. The Node writer is fenced during cutover; rollback must
+retain decisions made after cutover, not restore an old database snapshot.
 
-Palpo shares the browser's existing backend and serial mutation queue. It checks
-current roles and ownership on the server. Strict project approval across all
-frontends is an explicit deployment migration, `PALPO_PROJECT_APPROVAL_REQUIRED=1`;
-existing projects are grandfathered. See Palpo's `web-admin/MINIAPP.md`.
+## Acceptance evidence and limits
 
-## Validation
+The [coordinator validation record](palpo-coordinator-validation.md) contains
+native UI reports and the live isolated Palpo/Hagency lifecycle evidence. The
+latest native regression exercises actual Splash callbacks, account isolation,
+themes/drafts, notifications, approved-agent state and My Actions. The desktop
+Save/Cancel/import/probe acceptance passed 19 checks.
 
-The native fixture uses the production Splash file and Rinx HTTP adapter with
-real Palpo HTTP handlers and SQLite, plus explicit fake Matrix/Hagency services.
-It drives a 430 × 820 owner window and a desktop admin window with Makepad
-remote input and real captures. It does not use the signed-in user's profile.
+Live acceptance uses the private `rinx-adr0011.test` homeserver and two independent
+TLS Hagency engagements. Both have coordinator-approved projects/agents and real
+Matrix replies. A live transport rotation reattaches the second agent without
+restarting the first. Top-up replay preserves one increase; retirement completes
+runtime and Matrix cleanup while keeping unknown usage reserved. Agent work uses
+a deterministic native MCP peer, so this proves the execution/Matrix path, not
+paid-model quality or provider-reported token usage.
+
+Migration checks exercise the actual Node writer, Rust cutover, native receipt
+adoption, restored copies, lock fencing and exact replay. A prior compatible Rust
+binary opened a copy of the current database without changing any state or
+leased-delivery rows; post-cutover decisions remained present.
+
+Android device checks pass for shared login/consent, live DM/project replies,
+My Actions and native profile Save/Cancel/background cancellation. The saved
+profile was verified against its active generation and removed from the phone.
+Account changes require fresh consent; native guard tests also cover revocation
+before the final write. Hosted OctoSense also passes shared login, separate
+mini-app windows, live themes, agent status, My Actions and close/reopen with
+remembered consent. Its test uses an isolated source override and leaves the
+production release tag unchanged.
+
+The native library and complete OpenHarmony HAP build, but installation needs a
+signing profile for Rinx and the connected phone. Matrix-room notices and Inbox
+recovery are implemented; OS alerts while the mobile app is suspended are not
+validated. No native push provider/gateway configuration was found. That
+integration and device acceptance, OpenHarmony installation, and production
+cutover remain open; the ADR is not fully release-accepted.
+
+## Reproduce the native checks
 
 ```sh
-cargo build --profile fast --locked --example palpo_miniapp
-python3 tools/wechat-ux/live/native_palpo.py \
-  --palpo /path/to/palpo-rinx-miniapp \
-  --node /path/to/node24 \
-  --binary target/fast/examples/palpo_miniapp
+cargo build --profile fast --locked --features palpo-instrument \
+  --example palpo_miniapp --example palpo_action_room --example palpo_local
+python3 tools/wechat-ux/live/native_palpo_coordinator.py \
+  --backend /path/to/palpo/target/debug/palpo-operations \
+  --binary target/fast/examples/palpo_miniapp \
+  --board-binary target/fast/examples/palpo_action_room
 ```
 
-Reports, input traces, widget trees and screenshots are written under
-`target/palpo-validation/<run>/`. The native scenario covers contribution
-approval, owner handoff visibility, project approval and owner activation,
-named-agent submission, draft recovery after process restart, light/dark/custom
-themes, selection/undo, and disconnect without Matrix logout. Screenshots were
-inspected. A Makepad hidden-window frame-confirmation failure is handled by
-separating input from a read-only screenshot barrier, never replaying a click.
+`native_palpo_local.py` drives the production MiniAppsPanel against the isolated
+live server and verifies the result with independent authenticated reads. It
+requires a private acceptance account file and only permits the test server.
+Evidence and credentials stay under ignored `target/` directories. Freeze live
+executables before testing; do not rebuild an executable while it is running.
 
-Additional checks: Palpo backend regression suite, Rinx origin/action-link unit
-tests, catalog permission/admission tests, shared contract/policy/hub tests,
-and the full Rinx release build. The validation report is the evidence for a
-specific native run; this document is not a mobile or live-server acceptance claim.
+After generating an OpenHarmony project with cargo-makepad, run
+`python3 tools/package-openharmony.py --project <generated-project>` before hvigor.
+The installer adds the native document picker hooks and preserves signing
+settings. On incremental builds, copy the new cdylib into `entry/libs/arm64-v8a/`
+and repeat the hook installer; regenerating the whole project replaces local
+project configuration.
 
-## Remaining ADR gates
+App Hub publication is not attempted. The built-in bundle is stamped, but the
+store gate still refuses its absent publisher listing. No publisher or platform
+claim is fabricated. Companion App Contract and Robius picker changes are vendored
+with provenance and licenses pending their upstream releases.
 
-This is **not the complete ADR**. Existing-operation parity still needs signup
-decision navigation, real native configuration saving/import and full account-
-switch/revocation integration. Current signup UI lists requests only. Live
-administrator/owner contribution approval and Matrix-room notices now pass;
-the Hagency connection/lifecycle and OS push-notification entry remain untested.
-My Actions currently uses private Matrix notices and links; the Glance-style
-board, pinning, quiet hours and direct OS-notification mini-app routing remain.
-
-The subsequent Hagency extension is still required for delegated operator
-decisions, top-ups, runtime stats and complete runtime-plus-Matrix revocation.
-The UI does not report these as implemented. Android, OpenHarmony and hosted
-OctoSense require their own build/device acceptance.
-
-App Hub publication is not attempted. The template listing with invented
-publisher/platform data was removed. See `apps/palpo/PUBLISHING.md`. The stock
-card-host lacks Rinx controls and Palpo services, so validation uses the actual
-Rinx host fixture. Store admission awaits publisher metadata, device evidence
-and release of the shared contract; there is no claimed store gate pass.
-
-The temporary `vendor/octosense-app-contract` patch contains the companion
-App Hub additive extension and provenance. Replace it with the published 1.2
-crate after cross-repository review; no private App Hub git dependency is added.
+The [archived PR #60 checkpoint](palpo-miniapp-legacy-checkpoint.md) preserves
+the earlier Node workflow and native/worker validation history. Its commands and
+acceptance claims apply only to the pinned historical revision.
 
 ## Checkpoint evidence (2026-10-03)
 

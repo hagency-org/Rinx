@@ -425,11 +425,13 @@ pub enum FileUploadModalAction {
     None,
     /// Show the file upload modal (in its initial loading state).
     Show {
+        epoch: u64,
         upload: PendingUpload,
         preview_id: FileUploadAttemptId,
     },
     /// The preview has been generated in the background and is ready to be shown.
     PreviewReady {
+        epoch: u64,
         preview_id: FileUploadAttemptId,
         preview: PreviewPayload,
     },
@@ -468,6 +470,7 @@ impl ScriptHook for FileUploadModal {
 impl Widget for FileUploadModal {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
         if let Event::Actions(actions) = event {
+            if actions.iter().any(|a| matches!(a.downcast_ref(), Some(crate::logout::logout_confirm_modal::LogoutAction::ClearAppState { .. }))) { self.reset(cx); }
             if self.button(cx, ids!(cancel_button)).clicked(actions)
                 || self.button(cx, ids!(close_button)).clicked(actions)
             {
@@ -662,13 +665,15 @@ impl FileUploadModal {
 impl FileUploadModalRef {
     pub fn handle_file_previewer_action(&self, cx: &mut Cx, outer_modal: ModalRef, action: &FileUploadModalAction) {
         match action {
-            FileUploadModalAction::Show { upload, preview_id } => {
+            FileUploadModalAction::Show { epoch, upload, preview_id } => {
+                if *epoch != crate::account_session::epoch() { return; }
                 if let Some(mut inner) = self.borrow_mut() {
                     inner.set_upload(cx, upload.clone(), *preview_id);
                 }
                 outer_modal.open(cx);
             }
-            FileUploadModalAction::PreviewReady { preview_id, preview } => {
+            FileUploadModalAction::PreviewReady { epoch, preview_id, preview } => {
+                if *epoch != crate::account_session::epoch() { return; }
                 // Take from the payload so the decoded image isn't cloned.
                 if let Some(preview) = preview.take() {
                     if let Some(mut inner) = self.borrow_mut() {
@@ -697,9 +702,11 @@ fn next_file_preview_id() -> FileUploadAttemptId {
 /// Note: do not run this on the main UI thread, as it may do expensive operations
 ///       like reading files, scanning file data for strings, and decoding images.
 pub fn handle_picked_file(
+    epoch: u64,
     picked_file_result: robius_file_picker::Result<Option<robius_file_picker::PickedFile>>,
     into_upload: impl FnOnce(FileUploadMetadata) -> Result<PendingUpload, String>,
 ) {
+    if epoch != crate::account_session::epoch() { return; }
     let picked = match picked_file_result {
         Ok(Some(picked)) => picked,
         // The user dismissed the picker, so there's nothing to do.
@@ -727,9 +734,12 @@ pub fn handle_picked_file(
     // Show the preview modal instantly, and then re-use this bg thread
     // to read the file and generate the preview.
     let preview_id = next_file_preview_id();
-    Cx::post_action(FileUploadModalAction::Show { upload, preview_id });
+    if epoch != crate::account_session::epoch() { return; }
+    Cx::post_action(FileUploadModalAction::Show { epoch, upload, preview_id });
     let preview = preview_source.build();
+    if epoch != crate::account_session::epoch() { return; }
     Cx::post_action(FileUploadModalAction::PreviewReady {
+        epoch,
         preview_id,
         preview: PreviewPayload::new(preview),
     });

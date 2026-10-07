@@ -7,10 +7,11 @@
 > historical approval tables below are not the current authority specification.
 
 - Date: 2026-10-03
-- Status: Implementation in progress. Shared-login frontend and durable Inbox
-  have local native validation; administrator/owner contribution approval and
-  Matrix notices also pass against live Palpo. Complete lifecycle and deployment acceptance
-  remain open. See the [implementation checkpoint](../design/palpo-miniapp-implementation.md).
+- Status: Core workflows implemented under ADR 0011's revised authority and Rust backend.
+  Native desktop, Android and hosted OctoSense acceptance pass; OpenHarmony
+  builds pass and device acceptance awaits a Rinx signing profile. Suspended-app
+  push delivery and production cutover remain open. See the
+  [implementation checkpoint](../design/palpo-miniapp-implementation.md).
 - Extends [ADR 0005](0005-octoscript-miniapps-matrix-octos.md),
   [ADR 0006](0006-shared-app-hub-miniapps.md),
   [ADR 0008](0008-rinx-system-app-catalog.md), and
@@ -427,8 +428,8 @@ project selection, request/decision actions, live light/dark/customer themes and
 text scaling. Capture widget bounds, screenshots, focus/selection and service-call
 counts. Standalone Rinx and hosted OctoSense need separate integration evidence;
 Android/OpenHarmony require actual device build, touch/Back/keyboard/background
-checks. Desktop fixture success cannot substitute for those gates. No such
-device acceptance is claimed. Local implementation tests are recorded in the
+checks. Desktop fixture success cannot substitute for those gates. Android
+acceptance is recorded; OpenHarmony device acceptance remains open. Tests are in the
 [implementation checkpoint](../design/palpo-miniapp-implementation.md).
 
 ## Additional homeserver administration

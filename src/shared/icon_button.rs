@@ -125,4 +125,13 @@ script_mod! {
             color_down: (COLOR_TEXT)
         }
     }
+
+    mod.widgets.RinxChatInfoButton = mod.widgets.RobrixNeutralIconButton {
+        width: 44 height: 44 padding: 0 spacing: 0
+        align: Align{x: 0.5 y: 0.5}
+        text: "···"
+        draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_bold {font_size: (18 * mod.widgets.RINX_TEXT_SCALE)}}
+        draw_bg +: {color: #0000 color_hover: mod.widgets.RINX_HOVER color_down: mod.widgets.RINX_PRESSED border_size: 0}
+        icon_walk: Walk{width: 0 height: 0}
+    }
 }

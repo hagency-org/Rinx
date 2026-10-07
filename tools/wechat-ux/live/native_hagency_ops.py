@@ -6,6 +6,16 @@ from native_probe import NativeApp
 from seed import checked
 from native_hagency import fixture, ROOT
 
+def scroll_to(app, widget):
+    for _ in range(16):
+        height = app.request('/s')['w'][0]['sz'][1]
+        if any(w['i']==widget and 150 < w['r'][1] and w['r'][1]+w['r'][3]<height-30 for w in app.snap()):
+            return
+        app.request('/m',k='scroll',x=220,y=440,dy=350,wait=1)
+        time.sleep(.3)
+    raise AssertionError('Setting not reachable: '+widget)
+
+
 def main():
     os.environ.update(MAKEPAD_HIDE_WINDOWS='1',MAKEPAD_NO_FOCUS='1');os.environ.pop('MAKEPAD_FOCUS',None)
     f=fixture();alex=f['users']['alex'];bridge=f['users']['emma'];agent=f['users']['agent']
@@ -25,7 +35,7 @@ def main():
     def messages():return checked(f['url'],'GET',f'rooms/{owner_room}/messages?dir=b&limit=20',token=alex['access_token'])['chunk']
     try:
         app.start();report['run']=str(app.output);app.wait_text('All Chats',timeout=90)
-        app.click_id('me_tab');app.click_id('settings');app.click_id('general_row');app.click_id('hagency_row');app.click_id('agent_ops')
+        app.click_id('me_tab');app.click_id('settings');app.click_id('category_preferences_button');scroll_to(app,'agent_ops');app.click_id('agent_ops')
         app.wait_text('Development Agent Operations');app.capture('ops-dev-setup')
         for name,value in [('agent','worker'),('project',project),('owner_room',owner_room),('bridge',bridge['user_id']),('endpoint','http://example.org:8090'),('fingerprint',pin)]:field(name,value)
         app.click_id('connect');app.wait_text('Use an HTTP loopback address with an explicit port');passed('non_loopback_endpoint_refused_before_bootstrap')

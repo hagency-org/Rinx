@@ -12,7 +12,7 @@ script_mod! {
     startup() do #(App::script_component(vm)) {
         ui: Root {
             main_window := Window {
-                window.inner_size: vec2(510, 660)
+                window.inner_size: #(if std::env::args().any(|arg| arg == "--narrow") {dvec2(430., 660.)} else {dvec2(510., 660.)})
                 window.title: "Rinx · chat text selection test"
                 body +: {
                     flow: Overlay
@@ -49,7 +49,11 @@ impl MatchEvent for App {
         self.ui.html_or_plaintext(cx, ids!(plain)).show_plaintext(cx,
             "Alpha 中文 👩‍💻 bravo & <literal>\nSecond line has selectable words.\nThird line ends here.");
         self.ui.html_or_plaintext(cx, ids!(rich)).show_html(cx,
-            "<p>Rich <b>bold 中文</b> and <i>italic words</i>.</p><p><a href='https://example.org/'>Selectable link text</a> after the link.</p>");
+            if std::env::args().any(|arg| arg == "--blocks") {
+                "<p>Rich <b>bold 中文</b> and <code>inline code</code>.</p><blockquote>Selected quote stays readable.</blockquote><pre>Selected code stays readable.</pre>"
+            } else {
+                "<p>Rich <b>bold 中文</b> and <i>italic words</i>.</p><p><a href='https://example.org/'>Selectable link text</a> after the link.</p>"
+            });
         self.ui.html_or_plaintext(cx, ids!(wrapped)).show_plaintext(cx,
             "Wrapped 中文 text crosses several visual lines without losing spaces or emoji 👩‍💻.");
         self.ui.html_or_plaintext(cx, ids!(preview)).show_plaintext(cx, "Preview remains a non-selectable Label.");
@@ -85,6 +89,8 @@ impl MatchEvent for App {
             let response = std::rc::Rc::new(std::cell::RefCell::new(None));
             self.ui.handle_event(cx, &Event::TextCopy(TextClipboardEvent {response: response.clone()}), &mut Scope::empty());
             let state = serde_json::json!({
+                "ink": rinx::theme::argb(rinx::theme::snapshot(cx).ink),
+                "selection_color": rinx::theme::argb(rinx::theme::snapshot(cx).selected),
                 "plain": self.ui.html_or_plaintext(cx, ids!(plain)).selected_text(cx),
                 "rich": self.ui.html_or_plaintext(cx, ids!(rich)).selected_text(cx),
                 "wrapped": self.ui.html_or_plaintext(cx, ids!(wrapped)).selected_text(cx),
@@ -99,7 +105,7 @@ impl MatchEvent for App {
 impl AppMain for App {
     fn script_mod(vm: &mut ScriptVm) -> ScriptValue {
         makepad_widgets::theme_mod(vm);
-        script_eval!(vm, {mod.theme = mod.themes.light});
+        rinx::theme::init_standalone(vm);
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         article_makepad::apple_fonts::install(vm);
         makepad_widgets::widgets_mod(vm);

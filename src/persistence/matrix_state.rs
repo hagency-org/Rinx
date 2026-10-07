@@ -95,17 +95,10 @@ impl From<sliding_sync::Version> for SlidingSyncVersion {
     }
 }
 
-fn user_id_to_file_name(user_id: &UserId) -> String {
-    user_id.as_str()
-        .replace(":", "_")
-        .replace("@", "")
-}
-
-/// Returns the path to the persistent state directory for the given user.
+/// Returns a collision-free directory keyed by the complete Matrix user ID.
+/// Legacy directories are validated and migrated by `accounts::refresh`.
 pub fn persistent_state_dir(user_id: &UserId) -> PathBuf {
-    app_data_dir()
-        .join(user_id_to_file_name(user_id))
-        .join("persistent_state")
+    crate::accounts::account_dir(app_data_dir(), user_id).join("persistent_state")
 }
 
 /// Returns the path to the session file for the given user.
@@ -128,7 +121,7 @@ pub async fn most_recent_user_id() -> Option<OwnedUserId> {
 }
 
 /// Resolves the path that `restore_session()` would actually open.
-fn resolve_db_path(stored: PathBuf) -> PathBuf {
+pub(crate) fn resolve_db_path(stored: PathBuf) -> PathBuf {
     if !stored.is_absolute() {
         return app_data_dir().join(stored);
     }
@@ -172,8 +165,19 @@ async fn collect_referenced_db_paths() -> Option<std::collections::HashSet<PathB
             continue;
         }
         let session_file = path.join("persistent_state").join("session");
-        let Ok(bytes) = tokio::fs::read(&session_file).await else {
-            continue;
+        let retained = path.join("persistent_state/retained_db.json");
+        match tokio::fs::read(retained).await {
+            Ok(bytes) => {
+                let Ok(sessions) = serde_json::from_slice::<Vec<ClientSessionPersisted>>(&bytes) else { return None; };
+                for session in sessions { paths.insert(resolve_db_path(session.db_path)); }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+            Err(_) => return None,
+        }
+        let bytes = match tokio::fs::read(&session_file).await {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => return None,
         };
         let session: FullSessionPersisted = match serde_json::from_slice(&bytes) {
             Ok(s) => s,
@@ -181,7 +185,7 @@ async fn collect_referenced_db_paths() -> Option<std::collections::HashSet<PathB
                 log!("collect_referenced_db_paths: skipping unparsable session file {}: {e}",
                     session_file.display(),
                 );
-                continue;
+                return None;
             }
         };
         paths.insert(resolve_db_path(session.client_session.db_path));
@@ -326,6 +330,8 @@ pub async fn restore_session(
     let FullSessionPersisted { client_session, user_session, sync_token, sliding_sync_version } =
         serde_json::from_str(&serialized_session)?;
 
+    if user_session.meta.user_id != user_id { bail!("Saved session belongs to another account"); }
+
     let status_str = format!(
         "Loaded session file for:\n{user_id}\n\nTrying to connect to homeserver...\n{}",
         client_session.homeserver,
@@ -395,16 +401,22 @@ pub async fn save_session(
     })?;
     if let Some(parent) = session_file.parent() {
         tokio::fs::create_dir_all(parent).await?;
+        #[cfg(unix)] {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700)).await?;
+            if let Some(account) = parent.parent() { tokio::fs::set_permissions(account, std::fs::Permissions::from_mode(0o700)).await?; }
+        }
     }
     write_private_session(&session_file, serialized_session.as_bytes()).await?;
     save_latest_user_id(&user_id).await?;
 
+    crate::accounts::refresh()?;
     log!("Session persisted to: {}", session_file.display());
     Ok(())
 }
 
 /// Atomically replace the token-bearing session with owner-only permissions.
-async fn write_private_session(path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
+pub(crate) async fn write_private_session(path: &std::path::Path, data: &[u8]) -> anyhow::Result<()> {
     use tokio::io::AsyncWriteExt;
     let temporary = path.with_extension(format!("{:016x}.tmp", rand::random::<u64>()));
     let mut options = tokio::fs::OpenOptions::new();

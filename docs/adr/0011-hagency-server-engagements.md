@@ -1,7 +1,11 @@
 # ADR 0011: Hagency server engagements and coordinator approvals
 
 - Date: 2026-10-03
-- Status: Accepted product decision; implementation and deployment acceptance pending.
+- Status: Core workflows implemented across Rinx, Rust Palpo and native Hagency. Live isolated
+  lifecycle/migration, native desktop, Android and hosted OctoSense checks pass.
+  OpenHarmony builds pass; device acceptance awaits a Rinx signing profile.
+  Suspended-app push delivery and production cutover remain open. See the
+  [acceptance record](../design/palpo-coordinator-validation.md).
 - Supersedes ADR 0010's Node.js backend retention, contribution initiation,
   configuration-export authority and project/agent approval model, including
   its subsequent designated-project-admin and assigned-project-admin amendments.
@@ -35,10 +39,10 @@ identities, projects, request IDs, decisions, credentials, spending and history.
 | Concept | Meaning |
 | --- | --- |
 | Resource owner | The person/organization operating Hagency and supplying capacity |
-| Resource | An owned model/runtime configuration, backed by an account/seat and explicit capacity period |
+| Resource | An engagement-owned model/runtime configuration with one token budget, backed by an account/seat |
 | Server engagement | One authorized relationship between a Hagency installation and a Matrix homeserver |
 | Coordinator | A named Matrix user authorized by the resource owner to manage this engagement; a business role, separate from runtime bots |
-| Engagement resource allocation | Capacity reserved from an owned resource for this engagement |
+| Engagement resource allocation | Stable protocol binding for the resource budget; no separate configuration step or nested pool |
 | Project | An approved project owned by a Matrix user, bound to an engagement and its permitted resources |
 | Agent allocation | A grant to an agent within an engagement resource allocation |
 
@@ -55,13 +59,11 @@ its allocated resources. Cross-engagement projects are outside this first delive
 
 ```mermaid
 flowchart TD
-    O[Hagency resource owner] --> R[Owned resources]
-    O --> E[Server engagement]
+    O[Hagency resource owner] --> E[Server engagement]
     E --> S[Target Matrix server]
     E --> C[Assigned Hagency coordinator]
-    R --> G[Engagement resource allocation]
-    E --> G
-    G --> P[Approved projects]
+    E --> R[Resource configurations and budgets]
+    R --> P[Approved projects]
     P --> A[Agents and token allocations]
 ```
 
@@ -98,21 +100,29 @@ requires an explicit owner policy; default to refusing self-approval.
    supported registration or invitation flow. Hagency must not assume arbitrary
    public registration or administrator credentials. The account is verified
    before it is bound to an engagement.
-2. Hagency creates a pending engagement containing the target server, coordinator,
-   owner and runtime identity. A public server connection profile may help start
-   this request; it carries no resource grant or runtime credential.
-3. The Matrix admin receives the association request in the Rinx Inbox and
-   approves/rejects it. Approval authorizes this runtime association; it does not
-   contribute compute or approve every future project.
-4. After registration succeeds, the admin mini-app can download the approved
-   engagement profile. Authorized owner/coordinator retrieval is also supported.
-   It binds schema version, engagement ID, server identity/origin, runtime identity,
-   coordinator binding, registration ID/generation and transport setup. Any secret
-   is engagement-scoped and handled by the Rust host's export UI, never Splash or
-   a Matrix notice. Prefer credentials encrypted to the requesting runtime key.
-5. Hagency imports that profile into the matching engagement and tests the
-   authenticated connection. Importing another engagement cannot replace the first.
-   Reimport/rotation is generation-aware and preserves identity and history.
+2. The owner uses **Server engagements → New server engagement** in Hagency.
+   The form contains the Matrix address, existing owner/coordinator Matrix IDs,
+   connection name and delegation duration. Hagency persists the frozen intent,
+   runtime identity and a private pairing capability before contacting Palpo.
+   The owner confirms that exact request in Rinx using its existing Matrix
+   session; a staged request has no authenticated owner or server authority.
+3. After owner confirmation, the designated Matrix admin receives the association
+   request in the Rinx Inbox and approves/rejects it. Approval authorizes this
+   runtime association; it does not contribute compute or approve future projects.
+4. After registration succeeds, Hagency retrieves the approved engagement profile
+   automatically over the native pairing channel. It binds schema version,
+   engagement ID, server identity/origin, runtime identity, coordinator binding,
+   registration ID/generation and transport setup. Pairing and runtime secrets
+   stay in the native hosts; browser responses, Splash and Matrix notices carry
+   no credentials. Existing native download/import remains a recovery path.
+5. Hagency imports the bound profile without manual files. The owner clicks
+   **Verify connection** in the Rinx request to authorize the private connection
+   room. Hagency completes the authenticated probe. Background work continues
+   with the console closed and resumes after restart. Owner confirmation expires
+   after 30 minutes; bootstrap retrieval lasts at most seven days or until the
+   delegation expires, and is fenced by changed authority or credentials.
+   Importing another engagement cannot replace the first. Reimport/rotation is
+   generation-aware and preserves identity and history.
 6. Both surfaces show **Connection verified** only after an exact authenticated
    probe succeeds for the current registration. Approval, import and verification
    are separate states. Retain the last proof time and current connectivity;
@@ -123,7 +133,7 @@ engagement profile are distinct stages, not reasons to request the same approval
 twice. Once verified, the owner defines/selects resources for the engagement.
 The underlying resource and account remain Hagency-owned.
 
-`requested → approved → configuring → verifying → verified`
+`awaiting_owner → requested → approved → configuring → verifying → verified`
 
 Expose rejected, retryable setup failures, suspended and revoked separately.
 Revoking an association fences new work immediately but does not claim an offline
@@ -131,11 +141,19 @@ runtime has stopped. Existing agents, reservations and cleanup require reconcili
 
 ## Resources, projects and agents
 
-The owner allocates bounded capacity to a verified engagement in Hagency. Only
-that engagement's funded, published resources become requestable by eligible
-project managers. A global resource catalog entry is not an allocation. Publish
-allocation changes through a durable outbox with revision and observation time;
-Palpo refreshes the mini-app promptly. Lost events recover through reconciliation.
+The owner uses **New resource configuration** in Hagency to select a verified
+server engagement, account/runtime profile, model, reasoning, token budget and
+eligible project managers. One engagement may have multiple resources. Resource
+creation and its engagement binding save atomically. The Resources and Server
+engagements pages do not offer a separate allocation dialog; existing resources
+link back to the same configuration form for edits.
+
+Each resource has one budget. Shared-account limits constrain the combined
+commitments; there is no separately configured resource pool containing another
+resource pool. Preserve existing protocol allocation IDs and agent accounting
+when adopting this workflow. Only funded, published engagement resources become
+requestable. Publish changes through a durable outbox with revision and observation
+time; Palpo refreshes the mini-app promptly. Lost events recover through reconciliation.
 
 A manager requests a project using these resources. Its coordinator decides in
 Rinx. The project grant binds the owner, engagement, permitted resources and

@@ -134,6 +134,9 @@ pub struct NavigationBarButton {
     /// The text shown in a built-in tooltip when this button is hovered.
     /// If empty, no tooltip action is emitted (the parent may provide its own).
     #[live] tooltip_text: String,
+    /// Let interactive content (for example a photo) handle its own pointer
+    /// events before this enclosing row. Ordinary navigation stays parent-first.
+    #[live] children_first: bool,
 }
 
 impl Widget for NavigationBarButton {
@@ -141,8 +144,11 @@ impl Widget for NavigationBarButton {
         if self.animator_handle_event(cx, event).must_redraw() {
             self.redraw(cx);
         }
+        if self.children_first {
+            self.view.handle_event(cx, event, scope);
+        }
 
-        // IMPORTANT: run our own `event.hits()` BEFORE forwarding to children.
+        // By default, run our own `event.hits()` before forwarding to children.
         // Otherwise child widgets (e.g. an Avatar's View with `show_bg`) will
         // mark the event as handled on their own area, causing our hit test to
         // see `handled_area != self.area` and return `FingerHoverOut` (or
@@ -243,7 +249,9 @@ impl Widget for NavigationBarButton {
         // Forward to children so they still receive non-hit events
         // (Event::Actions, Event::Signal, etc.). Their own hit tests on this
         // same area will short-circuit because we've already handled it above.
-        self.view.handle_event(cx, event, scope);
+        if !self.children_first {
+            self.view.handle_event(cx, event, scope);
+        }
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {

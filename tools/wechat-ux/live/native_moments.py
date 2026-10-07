@@ -44,6 +44,10 @@ def main():
     def open_feed(app):
         app.click_id('discover_tab');app.click_id('discover_moments');idle(app)
     def back(app): app.click(24,54);time.sleep(.4)
+    def feed_action(app, name):
+        if not any(w['i']==name for w in app.snap()):
+            app.click_id('moments_menu')
+        app.click_id(name)
     def wait_widget(app, name, text, timeout=45):
         deadline=time.monotonic()+timeout
         while time.monotonic()<deadline:
@@ -70,7 +74,7 @@ def main():
         open_feed(author);author.capture('moments-native-feed')
         assert texts(author).count("No posts yet. Post your first moment, or accept a friend's timeline invitation.")==0
         # Accept Emma's independently owned timeline; no automatic audience reciprocity.
-        author.click_id('moments_invites');idle(author)
+        feed_action(author,'moments_invites');idle(author)
         author.wait_text('invited you',timeout=45)
         author.capture('moments-invitation');author.click_id('accept_moments');idle(author)
         members=checked(fixture['url'],'GET','rooms/'+seed['friend_timeline']+'/joined_members',token=friend['access_token'])['joined']
@@ -80,7 +84,7 @@ def main():
         open_feed(viewer)
         text='Native moment '+unique+' · 朋友圈'
         post(author,text);author.capture('moments-native-post')
-        viewer.click_id('moments_refresh');idle(viewer);wait_widget(viewer,'post_body',text)
+        feed_action(viewer,'moments_refresh');idle(viewer);wait_widget(viewer,'post_body',text)
         viewer.capture('moments-recipient-feed');passed('native_author_publishes_recipient_decrypts_and_renders')
         viewer.click_text(text.split(" · ")[0]);idle(viewer);viewer.wait_text('Moment',pixels=True)
         viewer.click_id('moments_like');idle(viewer);viewer.wait_text('Unlike',pixels=True)
@@ -101,19 +105,19 @@ def main():
         author.capture('moments-edited-post');passed('native_author_edits_post')
         viewer.click_id('moments_hide');idle(viewer)
         assert not any(w['i']=='post_body' and text in (w.get('t') or '') for w in viewer.snap())
-        viewer.click_id('moments_audience');idle(viewer);viewer.click_id('unhide_author');idle(viewer);back(viewer)
+        feed_action(viewer,'moments_audience');idle(viewer);viewer.click_id('unhide_author');idle(viewer);back(viewer)
         wait_widget(viewer,'post_body',text+' edited');passed('hide_author_and_unhide_in_audience')
         # Delete the native post and verify removal in the recipient feed.
         author.click_id('moments_delete');idle(author)
         assert not any(w['i']=='post_body' and text in (w.get('t') or '') for w in author.snap())
-        viewer.click_id('moments_refresh');idle(viewer)
+        feed_action(viewer,'moments_refresh');idle(viewer)
         assert not any(w['i']=='post_body' and text in (w.get('t') or '') for w in viewer.snap())
         passed('post_redaction_converges_on_recipient')
         # The author's existing encrypted album exercises lazy native media display.
         find_post(author,'Weekend album');idle(author)
         wait_widget(author,'detail_meta','Media 1 / 2');author.click_id('media_next');wait_widget(author,'detail_meta','Media 2 / 2')
         author.capture('moments-album-detail');back(author);passed('ordered_album_native_preview_and_navigation')
-        author.click_id('moments_audience');idle(author);author.capture('moments-audience')
+        feed_action(author,'moments_audience');idle(author);author.capture('moments-audience')
         assert fixture['users']['emma']['user_id'] in ' '.join(texts(author));back(author)
         back(author);author.click_id('chats_tab');author.click_id('file_transfer_entry');idle(author)
         author.wait_text('File Transfer',pixels=True,timeout=60);author.capture('file-transfer-native')

@@ -1,14 +1,17 @@
-# Agent-chat / hagency support
+# Rinx / Hagency integration
 
-Robrix can act as the human-facing client for the
-[hagency](https://github.com/hagency-org/hagency) control plane (a fork of
-[agent-chat](https://github.com/shisuiki/agent-chat)), which runs Claude Code
-and Codex coding agents and exposes them in Matrix rooms through a bridge bot.
+Rinx is the human-facing Matrix client for
+[Hagency](https://github.com/hagency-org/hagency-rs). The current Rust service
+runs local Codex agents. Rinx's bundled Palpo app handles server engagements,
+project and agent requests, coordinator decisions and runtime status. Follow the
+[quick start](hagency-quickstart.md) ([中文](hagency-quickstart.zh-CN.md)) for that
+workflow. This document describes client chat support, including compatibility
+with the earlier agent-chat bridge protocol.
 
-Everything described here is compiled only with the `agent_chat` Cargo
-feature. Default builds contain none of it: the timeline and settings DSL
-reference placeholder widgets from `src/agent_chat_dummy.rs` that render as
-empty views.
+Chat-specific support is compiled with the `agent_chat` Cargo feature, which
+is enabled by default. A build that explicitly omits it uses placeholder
+widgets from `src/agent_chat_dummy.rs`. The bundled Palpo app and its server
+authorization are separate from the optional workflow-command preference.
 
 ```bash
 cargo run --features agent_chat
@@ -28,7 +31,7 @@ cargo build --release --features agent_chat
 | **Agent message presentation.** Messages from `@ac_*` accounts get a badge after the sender name with the agent's workflow role (from its account name) and the message kind the bridge stamped (`📋` request, `↩️` reply, `ℹ️` info). The kind marker and the trailing `🔗 permalink` line are stripped from the body. | feature only | `src/agent_chat/presentation.rs`; hooks in `src/home/room_screen.rs` |
 | **Rooms-list previews.** Approval events are custom msgtypes, so without help they fall through ruma's `_Custom` arm and print `[Custom message]: CustomMessageContent { msgtype: ... }` into the rooms list. The bridge's human-readable `body` is shown instead. | feature only | `src/event_preview.rs` |
 | **Look and feel.** The card, buttons and badge follow robrix2's `RBX_*` design-token recipes (warning-tinted card, semantic-stroked buttons, accent badge). Upstream has no token layer, so `src/agent_chat/tokens.rs` defines just the tokens these surfaces use, with robrix2's values, under the same names — delete it if the full design system is ever ported. Typography keeps robrix2's sizes and weights on the theme fonts, since robrix2's custom font files are not shipped upstream. | feature only | `src/agent_chat/tokens.rs` |
-| **Settings and translations.** Desktop Preferences → Hagency; mobile Me → Settings → General → Hagency. One persisted workflow preference; English and Chinese labels. | feature only | `src/agent_chat/preferences.rs`, `src/settings/` |
+| **Settings and translations.** Both layouts use Settings → Preferences → Hagency (mobile enters through Me → Settings). One persisted workflow preference; English and Chinese labels. Approval cards do not require the workflow toggle. | feature only | `src/agent_chat/preferences.rs`, `src/settings/` |
 | **Long replies and streaming.** Expand/collapse long agent replies; receive MSC4357 live edits with Unicode-safe incremental reveal. | feature only | `src/agent_chat/reply.rs` |
 | **Scoped Agent Operations.** Encrypted bootstrap, pinned signed sessions, scoped projections, inspection and capability-bound commands. | `agent_ops_dev`; normal build awaits released producer contract | `src/agent_chat/ops/` |
 
@@ -111,24 +114,25 @@ cargo test --lib --features agent_chat agent_chat
 
 ### Driving the real app (`tools/agentchat-probe`)
 
-`tools/agentchat-probe/probe_approval.py` drives a running Robrix against a real
+`tools/agentchat-probe/probe_approval.py` drives a running Rinx against a real
 homeserver through makepad's `--remote` HTTP control surface, which injects input
 through the same path a human click takes. It asserts the card renders, clicks a
 decision button, and then checks the homeserver for the resulting verdict event.
 
 ```bash
-MAKEPAD_REMOTE=8099 ./target/debug/robrix <user> <password> <homeserver> &
+MAKEPAD_REMOTE=8099 ./target/debug/rinx &
+# Sign in through Rinx, then substitute this isolated test's room and request.
 python3 tools/agentchat-probe/probe_approval.py \
     --bridge 8099 --homeserver http://127.0.0.1:8128 \
-    --room '!room:server' --request-id approval_<32hex> \
-    --token <reader-token> --user <localpart>
+    --room '!room:server' --request-id 'approval_<32hex>' \
+    --token '<reader-token>' --user '<localpart>'
 ```
 
 `MAKEPAD_REMOTE=1` means *port 1*, not "enabled" — pass a real port. The probe
 ends with `/gq` so it never leaves a test window behind.
 
-> **Why not the headless renderer?** `MAKEPAD=headless` does not compile on macOS
-> at the pinned makepad rev `493d23a`: `platform/src/os/cx_shared.rs:762` calls
+> **Historical probe note:** `MAKEPAD=headless` did not compile on macOS
+> at Makepad rev `493d23a`: `platform/src/os/cx_shared.rs:762` calls
 > `crate::os::apple::metal::note_input_event()` under `#[cfg(target_vendor =
 > "apple")]`, while `platform/src/os/mod.rs` gates `pub mod apple;` behind
 > `not(headless)` — so the call survives and the module does not (E0433). The
@@ -195,10 +199,14 @@ edit badge, and restores formatted HTML when the final edit removes the marker.
 Old or stalled live messages stop animating after five minutes and remain readable.
 This does not add a live-draft sending mode.
 
-Mobile: **Me → Settings → General → Hagency**. Desktop: **Settings → Preferences →
-Hagency**. Both use the same persisted workflow-command preference. Labels, roles,
+Both layouts use **Settings → Preferences → Hagency**; mobile opens Settings
+from **Me**. They share the same persisted workflow-command preference. Labels, roles,
 approval buttons and descriptions support English and Simplified Chinese; wire
 identifiers, slash commands, agent text and approval decisions remain unchanged.
+
+The same Preferences page also contains **App appearance** in both layouts.
+Appearance changes and the workflow toggle are client preferences; neither
+creates a server engagement nor grants coordinator authority.
 
 ## Scoped Agent Operations
 

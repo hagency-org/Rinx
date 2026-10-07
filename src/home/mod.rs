@@ -3,6 +3,7 @@ use makepad_widgets::ScriptVm;
 pub mod mobile;
 pub mod mobile_chat_info;
 pub mod account_menu;
+pub mod account_list;
 pub mod add_room;
 pub(crate) mod back_swipe;
 pub mod chat_actions;

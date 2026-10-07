@@ -89,7 +89,7 @@ script_mod! {
         width: Fill, height: Fit
         flow: Down
 
-        LineH { width: 425, padding: 10, margin: Inset{top: 20, bottom: 5} }
+        LineH { width: Fill, padding: 10, margin: Inset{top: 20, bottom: 5} }
 
         TitleLabel {
             text: #(crate::i18n::tr("Privacy Settings")) i18n_text: "Privacy Settings"

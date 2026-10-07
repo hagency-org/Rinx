@@ -20,6 +20,15 @@ pub struct Stored {
     pub previous: Option<Preferences>,
 }
 
+impl Stored {
+    fn upgrade_presets(&mut self) {
+        super::presets::upgrade(&mut self.current);
+        if let Some(previous) = &mut self.previous {
+            super::presets::upgrade(previous);
+        }
+    }
+}
+
 pub fn load(cx: &mut Cx, dir: &Path, family: DesktopStyle) -> Stored {
     // An interrupted first render must never trap startup in the new theme.
     if dir.join("theme-rollback.json").exists() {
@@ -27,7 +36,8 @@ pub fn load(cx: &mut Cx, dir: &Path, family: DesktopStyle) -> Stored {
             return Stored::default();
         };
         if bytes.len() <= contract::MAX_BYTES * 3 {
-            if let Ok(old) = serde_json::from_slice::<Stored>(&bytes) {
+            if let Ok(mut old) = serde_json::from_slice::<Stored>(&bytes) {
+                old.upgrade_presets();
                 if stylesheet(cx, &old.current, family).is_ok() {
                     if save(dir, &old).is_ok() {
                         let _ = std::fs::remove_file(dir.join("theme-rollback.json"));
@@ -43,6 +53,7 @@ pub fn load(cx: &mut Cx, dir: &Path, family: DesktopStyle) -> Stored {
         .filter(|b| b.len() <= contract::MAX_BYTES * 3)
         .and_then(|b| serde_json::from_slice::<Stored>(&b).ok());
     if let Some(mut stored) = stored {
+        stored.upgrade_presets();
         if stylesheet(cx, &stored.current, family).is_ok() {
             return stored;
         }
@@ -312,6 +323,7 @@ pub(super) fn install(cx: &mut Cx, sheet: StyleSheet, preferences: Preferences, 
 
 pub fn base_tokens(s: &Snapshot) -> Tokens {
     let mut t = Tokens::new();
+    let dark = luminance(s.page) < 0.5;
     for (name, c) in [
         ("color.surface.page", s.page),
         ("color.surface.panel", s.surface),
@@ -326,7 +338,7 @@ pub fn base_tokens(s: &Snapshot) -> Tokens {
         ("color.state.pressed", s.pressed),
         ("color.state.selected", s.selected),
         ("color.chat.incoming", s.surface),
-        ("color.chat.outgoing", s.selected),
+        ("color.chat.outgoing", mix(s.surface, s.accent, if dark { 0.15 } else { 0.25 })),
         ("color.chat.mention", s.selected),
         ("color.code.background", s.field),
         ("color.code.foreground", s.ink),
@@ -336,7 +348,6 @@ pub fn base_tokens(s: &Snapshot) -> Tokens {
             contract::color(&format!("{:06x}", argb(c) & 0xffffff)).unwrap(),
         );
     }
-    let dark = luminance(s.page) < 0.5;
     for (state, fg, bg) in if dark {
         [
             ("success", 0x86efac, 0x163522),
@@ -450,6 +461,37 @@ pub fn stylesheet(cx: &mut Cx, preferences: &Preferences, family: DesktopStyle) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dark_only_presets_gain_light_variants_without_overwriting_customizations() {
+        let path = std::env::temp_dir().join(format!("rinx-preset-upgrade-{}", uuid::Uuid::new_v4()));
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        for preset in super::super::presets::all().iter().take(4) {
+            let mut legacy = preset.clone();
+            legacy.tokens = legacy.variants.dark.clone();
+            legacy.variants.light = serde_json::json!({});
+            legacy.variants.dark = serde_json::json!({});
+            let preferences = Preferences {
+                selection: Selection { appearance: Appearance::Dark, ..Default::default() },
+                package: Some(legacy.clone()),
+                follow_system: true,
+            };
+            let stored = Stored { current: preferences.clone(), previous: Some(preferences.clone()) };
+            save(&path, &stored).unwrap();
+            let expected = Preferences { package: Some(preset.clone()), ..preferences.clone() };
+            let loaded = load(&mut cx, &path, DesktopStyle::Macos);
+            assert_eq!(loaded.current, expected);
+            assert_eq!(loaded.previous, Some(expected.clone()));
+            atomic_write(&path, "theme-rollback.json", &serde_json::to_vec(&stored).unwrap()).unwrap();
+            assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, expected);
+            assert!(!path.join("theme-rollback.json").exists());
+            // Same package ID, deliberately edited data: never replace it.
+            legacy.set(None, "shape.surface.radius", Token { kind: "dimension".into(), value: serde_json::json!({"value":12,"unit":"px"}), description: String::new() });
+            let custom = Preferences { package: Some(legacy), ..preferences };
+            save(&path, &Stored { current: custom.clone(), previous: None }).unwrap();
+            assert_eq!(load(&mut cx, &path, DesktopStyle::Macos).current, custom);
+        }
+        std::fs::remove_dir_all(path).unwrap();
+    }
     #[test]
     fn interrupted_apply_recovers_last_rendered_theme() {
         let path =

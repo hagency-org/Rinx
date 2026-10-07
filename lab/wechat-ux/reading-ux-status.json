@@ -1,0 +1,180 @@
+{
+  "date": "2026-10-06",
+  "accepted": false,
+  "threshold": 9.5,
+  "scope": "Offline production components on native macOS Metal; phone width is not a physical phone test.",
+  "branch": "feat/wechat-reading-ux",
+  "base_commit": "5e8305af",
+  "font_fix_commit": "76c7a92b",
+  "mechanical_score": {
+    "scorer_sha256": "14d9018b310ac885f87493367ff813581a1c303bc4c4ee209c4ca90b4b8ee286",
+    "meaning": "Pixel distribution diagnostics, not percentage equivalence to WeChat. Whole unedited native captures.",
+    "minimum": 9.11,
+    "maximum": 9.82,
+    "mean": 9.42,
+    "passed": false,
+    "screens": [
+      {
+        "name": "moments-mobile-light",
+        "score": 9.34,
+        "sha256": "a8bdeaee6fc106ff0616e9c51f4bbfb2e5add8142b8a0b7525420873101f9e58",
+        "minimum_text_contrast": 7.12
+      },
+      {
+        "name": "moments-mobile-dark",
+        "score": 9.11,
+        "sha256": "6205ee5ec4b86b95251bd62a2fc9f96bb33b04fad02d7705b6de14ab804c998b",
+        "minimum_text_contrast": 6.63
+      },
+      {
+        "name": "moments-desktop-light",
+        "score": 9.38,
+        "sha256": "f385fc72b156d7fc1da555155e81c84f3948129ae310e4f2969f0eabf65e6d60",
+        "minimum_text_contrast": 7.12
+      },
+      {
+        "name": "moments-desktop-dark",
+        "score": 9.34,
+        "sha256": "8814a7a5f91655ce9931385aa246c87cd48dfb85cfd6b9742f5b08e5efa2cd9a",
+        "minimum_text_contrast": 6.63
+      },
+      {
+        "name": "library-mobile-light",
+        "score": 9.41,
+        "sha256": "e5433f11cae45318ade1f27cfa51310018e6de4c580f323aa469f2c43fa321b7",
+        "minimum_text_contrast": 7.68
+      },
+      {
+        "name": "library-mobile-dark",
+        "score": 9.82,
+        "sha256": "7200c6e7f1a9b01cb9d5549f2ed7eff4f9da7a44134ec0331dc1d6cd5a56d727",
+        "minimum_text_contrast": 6.63
+      },
+      {
+        "name": "library-desktop-light",
+        "score": 9.38,
+        "sha256": "432ad328c64808b6cdf47fd93bdab3fdcf5ab61b9d42f9956aae6747a421630a",
+        "minimum_text_contrast": 7.68
+      },
+      {
+        "name": "library-desktop-dark",
+        "score": 9.25,
+        "sha256": "3cf41b7c2905413d259dd7896328e96a2d3a89191d4d3c776ec29b881fd05054",
+        "minimum_text_contrast": 6.63
+      },
+      {
+        "name": "reader-mobile-light",
+        "score": 9.52,
+        "sha256": "b91d0da8220420181e7c2cf8c447b331d7c6c6fbca8d74b0e16be456387e72e7",
+        "minimum_text_contrast": 6.53
+      },
+      {
+        "name": "reader-mobile-dark",
+        "score": 9.61,
+        "sha256": "d0444e9c02d6eef77ccc2e150a5ac677a6888da45ac928b5150020457cd94a94",
+        "minimum_text_contrast": 9.25
+      },
+      {
+        "name": "reader-desktop-light",
+        "score": 9.6,
+        "sha256": "4b11980ec5db95b3e0854979754d248359609f8bc9c1f7503b0ff8cae40e54d4",
+        "minimum_text_contrast": 6.53
+      },
+      {
+        "name": "reader-desktop-dark",
+        "score": 9.28,
+        "sha256": "51ca305b564fc865614da3d37077c1e42a54817789b8d29615d97fa74477334d",
+        "minimum_text_contrast": 9.25
+      }
+    ]
+  },
+  "validation": {
+    "unit_tests": {
+      "passed": 338,
+      "ignored": 2
+    },
+    "apple_font_tests_passed": 4,
+    "final_targeted_rerun": {
+      "moments_passed": 19,
+      "moments_ignored": 1,
+      "article_panel_passed": 4
+    },
+    "native_ui_assertions_passed": 48,
+    "album_assertions_passed": 88,
+    "browser_journeys": [
+      {
+        "mode": "desktop",
+        "passed": 21,
+        "binary_sha256": "23ef1336fb7901a59654b758bd85e19c4449d8c5cb54d6036da2e8dfc46fd470"
+      },
+      {
+        "mode": "modal",
+        "passed": 16,
+        "binary_sha256": "22a950a3b86f311a80dcd80ecfa7384411c6324cf0603410679f0aaaad915fa0"
+      }
+    ],
+    "build_profile": "fast (unoptimized); not a production performance benchmark",
+    "reading_binary_sha256": "a46207f5baa4cb813afe9d49c3b5b5feba31e691d1d02ad3635a14cbfed9beb7",
+    "accountless_preview_crash_regression": {
+      "cause": "Like handler unwrapped a missing account in the offline preview; audience handler contained the same assumption.",
+      "reproduced_with_old_binary": true,
+      "old_binary_sha256": "a46207f5baa4cb813afe9d49c3b5b5feba31e691d1d02ad3635a14cbfed9beb7",
+      "checks": [
+        {
+          "report": "target/reading-ux/crash-fixed-v3/report.json",
+          "binary_sha256": "e1eb192d4845af890b774b79e5cd5ce2f5d854a899fbd9523b992b583c2e88e3",
+          "checks_passed": 32
+        },
+        {
+          "report": "target/reading-ux/crash-fixed-album/report.json",
+          "binary_sha256": "e1eb192d4845af890b774b79e5cd5ce2f5d854a899fbd9523b992b583c2e88e3",
+          "checks_passed": 36
+        }
+      ],
+      "unit_tests": {
+        "passed": 19,
+        "ignored": 1
+      },
+      "scope": "Native macOS, desktop and phone widths, no Matrix account. Like, comment, audience, compose, and four-image download paths.",
+      "limitation": "This validates safe read-only preview interactions, not authenticated publishing or physical phones."
+    }
+  },
+  "acceptance_gaps": [
+    "Not every captured surface reaches 9.5.",
+    "Public reference screenshots span different versions; no current paired WeChat/Rinx phone capture.",
+    "No iOS/Android device validation in this run.",
+    "Rinx has an authoring library and shared article reader, not an official-account directory/subscription update feed.",
+    "Moments still lacks personal photo covers and inline reply controls.",
+    "Phone tabs still use horizontal scrolling; no compact overview.",
+    "Chinese punctuation line-breaking still needs improvement."
+  ],
+  "sources": [
+    {
+      "url": "https://www.ithome.com/0/842/416.htm",
+      "date": "2025-04-01",
+      "surface": "desktop Moments and profile album"
+    },
+    {
+      "url": "https://www.cnbeta.com.tw/articles/tech/1452102.htm",
+      "date": "2024-11-03",
+      "surface": "desktop account screenshot"
+    },
+    {
+      "url": "https://news.mydrivers.com/1/897/897585.htm",
+      "date": "2023-03-15",
+      "surface": "older mobile subscription screenshot; not current-device evidence"
+    },
+    {
+      "url": "https://www.ithome.com/0/926/302.htm",
+      "date": "2026-03-05",
+      "surface": "desktop reading layout changes"
+    }
+  ],
+  "local_review": "target/reading-ux/review/index.html",
+  "reproduce": [
+    "cargo build --locked --profile fast --features ux_fixtures --example reading_ux --example chat_web_browser",
+    "python3 tools/wechat-ux/live/native_reading_ux.py --binary target/fast/examples/reading_ux --output target/reading-review",
+    "python3 tools/wechat-ux/live/native_chat_web_browser.py --binary target/fast/examples/chat_web_browser --desktop",
+    "python3 tools/wechat-ux/live/native_chat_web_browser.py --binary target/fast/examples/chat_web_browser"
+  ]
+}

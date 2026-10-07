@@ -46,7 +46,7 @@ makepad-code-editor = { git = "https://github.com/kevinaboos/makepad", branch = 
 
 
 robius-directories = { git = "https://github.com/project-robius/robius" }
-robius-file-picker = { git = "https://github.com/project-robius/robius" }
+robius-file-picker = { path = "vendor/robius-file-picker" }
 robius-location    = { git = "https://github.com/project-robius/robius" }
 robius-open        = { git = "https://github.com/project-robius/robius" }
 robius-share       = { git = "https://github.com/project-robius/robius" }
@@ -62,6 +62,7 @@ bitflags = "2.6.0"
 blurhash = { version = "0.2.3", default-features = false }
 bytesize = "2.0"
 chrono = "0.4"
+iana-time-zone = "0.1.64"
 clap = { version = "4.0.16", features = ["derive"] }
 crossbeam-channel = "0.5.10"
 crossbeam-queue = "0.3.8"
@@ -154,6 +155,12 @@ robius-web-auth-session = { git = "https://github.com/project-robius/robius" }
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-root-certs = "1"
 
+# AWS-LC has no pregenerated ABI bindings for OpenHarmony.
+[target.'cfg(target_env = "ohos")'.dependencies]
+aws-lc-rs = { version = "1.13", features = ["bindgen"] }
+napi-derive-ohos = "0.0.9"
+napi-ohos = "0.1.3"
+
 
 ## Article editor on desktop: pasting images and picking several images at once.
 [target.'cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))'.dependencies]
@@ -168,6 +175,10 @@ dark-light = "2"
 
 
 [features]
+## Offline native review fixtures; never enabled in distributed builds.
+ux_fixtures = []
+# Isolated local accounts exist only in instrument builds.
+palpo-instrument = []
 default = ["standalone", "agent_chat"]
 ## The standalone app's entry point (window, menus, `app_main!`). A host that
 ## links Rinx as a module disables it.
@@ -213,7 +224,13 @@ log_timeline_diffs = []
 log_space_service_diffs = []
 
 
+[[example]]
+name = "palpo_action_room"
+required-features = ["palpo-instrument"]
+
 [patch.crates-io]
+# Octos' existing OpenHarmony ioctl ABI correction for rustyline's nix 0.29.
+nix = { git = "https://github.com/octos-org/octos.git", rev = "deb433e9a452c03d8fe7f4f6a26b42785c47ced7" }
 # Pending additive App Hub contract release; see vendor/octosense-app-contract/RINX-PATCH.md.
 octosense-app-contract = { path = "vendor/octosense-app-contract" }
 ## This is required to avoid a version conflict on the libsqlite3-sys crate,
@@ -534,3 +551,11 @@ octoscript-core = { git = "https://www.github.com/OctoSense-org/Octoscript.git",
 octoscript-makepad = { git = "https://www.github.com/OctoSense-org/Octoscript-Makepad.git", rev = "cb66de073469063abeb2a5ab2a2bbf3cdb365745" }
 octoscript-widgets = { git = "https://www.github.com/OctoSense-org/Octoscript-Makepad.git", rev = "cb66de073469063abeb2a5ab2a2bbf3cdb365745" }
 octoscript-node = { git = "https://www.github.com/OctoSense-org/Octoscript-Makepad.git", rev = "cb66de073469063abeb2a5ab2a2bbf3cdb365745" }
+
+[[example]]
+name = "palpo_local"
+required-features = ["palpo-instrument"]
+
+[[example]]
+name = "reading_ux"
+required-features = ["ux_fixtures"]

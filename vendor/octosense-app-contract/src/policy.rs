@@ -234,6 +234,25 @@ pub fn resolve(manifest: &AppManifest, limits: &HostLimits) -> Result<AppPolicy,
         }
         capabilities.insert(capability.clone());
     }
+    if capabilities.contains("palpo.projects.select_room")
+        && !manifest.requires.iter().any(|f| f == "palpo-project-room-picker-v1") {
+        return Err("palpo.projects.select_room requires palpo-project-room-picker-v1".into());
+    }
+
+    if capabilities.contains("palpo.accounts.open")
+        && !manifest.requires.iter().any(|f| f == "palpo-account-navigation-v1") {
+        return Err("palpo.accounts.open requires palpo-account-navigation-v1".into());
+    }
+
+    if capabilities.contains("palpo.requests.open")
+        && !manifest.requires.iter().any(|f| f == "palpo-agent-navigation-v1") {
+        return Err("palpo.requests.open requires palpo-agent-navigation-v1".into());
+    }
+
+    if capabilities.contains("palpo.actions.room.ensure")
+        && !manifest.requires.iter().any(|f| f == "palpo-actions-room-v1") {
+        return Err("palpo.actions.room.ensure requires palpo-actions-room-v1".into());
+    }
 
     let mut hosts = BTreeSet::new();
     for host in &manifest.network.hosts {

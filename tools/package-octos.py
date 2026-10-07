@@ -88,6 +88,9 @@ def android_env(sdk):
     if not clang.is_file():
         raise ValueError("Missing Android API 33 compiler: " + str(clang))
     return {
+        # CMake-based dependencies need the NDK root as well as cc's compiler
+        # wrappers when cross-compiling the independently packaged kernel.
+        "ANDROID_NDK_ROOT": str(ndk.parents[4]),
         "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER": str(clang),
         "CARGO_TARGET_AARCH64_LINUX_ANDROID_AR": str(ndk / ("llvm-ar" + suffix)),
         "CC_aarch64_linux_android": str(clang),

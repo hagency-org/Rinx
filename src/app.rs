@@ -21,7 +21,7 @@ use crate::{
         event_source_modal::{EventSourceModalAction, EventSourceModalWidgetRefExt}, invite_modal::{InviteModalAction, InviteModalWidgetRefExt}, main_desktop_ui::MainDesktopUiAction, navigation_tab_bar::{NavigationBarAction, SelectedTab}, new_message_context_menu::NewMessageContextMenuWidgetRefExt, room_context_menu::RoomContextMenuWidgetRefExt, room_screen::{InviteAction, MessageAction, clear_timeline_states, invalidate_single_timeline_state}, rooms_list::{RoomsListAction, RoomsListRef, RoomsListUpdate, clear_all_invited_rooms, enqueue_rooms_list_update}
     }, join_leave_room_modal::{
         JoinLeaveModalKind, JoinLeaveRoomModalAction, JoinLeaveRoomModalWidgetRefExt
-    }, login::login_screen::LoginAction, logout::logout_confirm_modal::{LogoutAction, LogoutConfirmModalAction, LogoutConfirmModalWidgetRefExt}, persistence, profile::user_profile_cache::clear_user_profile_cache, room::BasicRoomDetails, settings::app_preferences::{AppPreferences, UiZoom}, shared::{confirmation_modal::{ConfirmationModalContent, ConfirmationModalWidgetRefExt}, context_menu::{ContextMenuClosed, menu_position_margin}, image_viewer::{ImageViewerAction, LoadState}, popup_list::{PopupKind, enqueue_popup_notification}}, sliding_sync::{DirectMessageRoomAction, MatrixRequest, TimelineKind, current_user_id, submit_async_request}, utils::RoomNameId, verification::VerificationAction, verification_modal::{
+    }, login::login_screen::LoginAction, logout::logout_confirm_modal::{LogoutAction, LogoutConfirmModalAction, LogoutConfirmModalWidgetRefExt}, persistence, profile::user_profile_cache::clear_user_profile_cache, room::BasicRoomDetails, settings::app_preferences::{AppPreferences, UiZoom}, shared::{confirmation_modal::{ConfirmationModalContent, ConfirmationModalWidgetRefExt}, context_menu::{ContextMenuClosed, menu_position_margin}, image_viewer::{ImageViewerAction, ImageViewerWidgetRefExt, LoadState}, popup_list::{PopupKind, enqueue_popup_notification}}, sliding_sync::{DirectMessageRoomAction, MatrixRequest, TimelineKind, current_user_id, submit_async_request}, utils::RoomNameId, verification::VerificationAction, verification_modal::{
         VerificationModalAction,
         VerificationModalWidgetRefExt,
     }
@@ -33,6 +33,7 @@ use crate::shared::web_browser_window::WebBrowserWindowHostWidgetRefExt;
 use crate::agent_chat::ops::ui::{AgentOpsAction, AgentOpsPanelWidgetRefExt};
 use crate::moments::ui::{MomentsAction, MomentsPanelWidgetRefExt};
 use crate::octoscript_apps::{MiniAppsAction, MiniAppsPanelWidgetRefExt};
+use crate::miniapps::window::MiniAppsWindowHostWidgetRefExt;
 use crate::settings::theme_studio::{ThemeStudioAction, ThemeStudioWidgetRefExt};
 use crate::article_app::{ArticleAction, ArticlePanelWidgetRefExt};
 use crate::mini_app::{MiniAppAction, MiniAppPanelWidgetRefExt};
@@ -186,6 +187,7 @@ script_mod! {
             // Likewise the article editor's window.
             article_window_host := ArticleWindowHost {}
             web_browser_window_host := WebBrowserWindowHost {}
+            mini_apps_window_host := MiniAppsWindowHost {}
 
             main_window := Window {
                 window.inner_size: vec2(1280, 800)
@@ -242,6 +244,8 @@ pub struct App {
     /// This can be either a room we're waiting to join, or one we're waiting to be invited to.
     /// Also includes an optional room ID to be closed once the awaited room has been loaded.
     #[rust] waiting_to_navigate_to_room: Option<(BasicRoomDetails, Option<OwnedRoomId>)>,
+    /// Preserve the exact signup event while its invitation is accepted/synced.
+    #[rust] pending_signup_navigation: Option<(crate::miniapps::palpo::SignupApprovalTarget, std::time::Instant)>,
 }
 
 impl ScriptHook for App {
@@ -339,6 +343,23 @@ impl MatchEvent for App {
         }
 
         for action in actions {
+            if let Some(action) = action.downcast_ref::<crate::accounts::AccountAction>() {
+                if !crate::sliding_sync::account_changing() {
+                    self.persist_runtime_state(cx, "account switch");
+                    let target = match action {
+                        crate::accounts::AccountAction::Select(user) => Some(user.clone()),
+                        crate::accounts::AccountAction::Add => None,
+                    };
+                    let already_active = target.as_ref().is_some_and(|user| current_user_id().as_ref() == Some(user));
+                    if !already_active && crate::sliding_sync::request_account_change(target) {
+                        self.app_state.logged_in = false;
+                        self.update_login_visibility(cx);
+                        cx.action(LoginAction::Status { title: crate::i18n::tr("Switching Account").into(), status: crate::i18n::tr("Finishing the previous session…").into() });
+                    }
+                    self.ui.redraw(cx);
+                }
+                continue;
+            }
             if let Some(action) = action.downcast_ref::<ThemeStudioAction>() {
                 let modal = self.ui.modal(cx, ids!(theme_studio_modal));
                 self.ui
@@ -361,9 +382,15 @@ impl MatchEvent for App {
                 }
                 continue;
             }
+            if let Some(AppStateAction::RoomLoadedSuccessfully { room_name_id, is_invite: false }) = action.downcast_ref() {
+                self.resume_signup_navigation(cx, room_name_id, current_user_id().as_deref());
+            }
             // Opening a hidden conversation is explicit on both mobile and desktop.
             // Mobile selection does not emit the desktop RoomFocused action.
             if let RoomsListAction::Selected(room) = action.as_widget_action().cast() {
+                if self.pending_signup_navigation.as_ref().is_some_and(|(target, _)| target.room_id != *room.room_id()) {
+                    self.cancel_signup_navigation();
+                }
                 // Mobile selection does not emit `RoomFocused`: this is the room shown now.
                 crate::assistant::set_current_room(Some(room.room_name()));
                 if crate::home::chat_actions::restore(room.room_id()) {
@@ -394,9 +421,11 @@ impl MatchEvent for App {
                     self.ui.redraw(cx);
                     continue;
                 }
-                Some(LogoutAction::ClearAppState { on_clear_appstate }) =>  {
+                Some(LogoutAction::ClearAppState { .. }) =>  {
+                    robius_speech::cancel_all();
                     self.clear_session_ui(cx);
-                    on_clear_appstate.notify_one();
+                    self.update_login_visibility(cx);
+                    self.ui.redraw(cx);
                     continue;
                 }
                 _ => {}
@@ -423,8 +452,7 @@ impl MatchEvent for App {
             if let Some(LoginAction::LoginFailure(_)) = action.downcast_ref() {
                 crate::article_app::invalidate_sessions();
                 crate::octoscript_apps::invalidate_sessions();
-                let mini_modal=self.ui.modal(cx,ids!(octoscript_apps_modal));
-                self.ui.mini_apps_panel(cx,ids!(octoscript_apps_modal.content)).action(cx,mini_modal,&MiniAppsAction::Close);
+                self.close_mini_apps(cx);
                 let modal = self.ui.modal(cx, ids!(article_app_modal));
                 self.ui.article_panel(cx, ids!(article_app_modal.content)).action(cx, modal, &ArticleAction::Close);
                 self.article_window_host(cx).close(cx);
@@ -534,8 +562,51 @@ impl MatchEvent for App {
                 continue;
             }
             if let Some(action) = action.downcast_ref::<MiniAppsAction>() {
-                let modal=self.ui.modal(cx,ids!(octoscript_apps_modal));
-                self.ui.mini_apps_panel(cx,ids!(octoscript_apps_modal.content)).action(cx,modal,action);
+                if let MiniAppsAction::OpenSignupApproval(target) = action {
+                    if current_user_id().as_ref() == Some(&target.account) {
+                        self.waiting_to_navigate_to_room = None;
+                        self.close_mini_apps(cx);
+                        let room = RoomNameId::empty(target.room_id.clone());
+                        if cx.get_global::<RoomsListRef>().get_room_state(&target.room_id) == Some(RoomState::Joined) {
+                            self.pending_signup_navigation = None;
+                            cx.action(NavigationBarAction::GoToHome);
+                            cx.action(RoomHistoryAction::Jump { room, event: target.event_id.clone() });
+                        } else {
+                            self.pending_signup_navigation = Some((target.clone(), std::time::Instant::now()));
+                            self.navigate_to_room(cx, None, &BasicRoomDetails::RoomId(room));
+                        }
+                    }
+                    continue;
+                }
+                if let MiniAppsAction::OpenActionsRoom(target) = action {
+                    if current_user_id().as_ref() == Some(&target.account) {
+                        self.cancel_signup_navigation();
+                        self.close_mini_apps(cx);
+                        cx.action(NavigationBarAction::GoToHome);
+                        let room = cx.get_global::<RoomsListRef>().get_room_name(&target.room_id)
+                            .unwrap_or_else(|| RoomNameId::new(matrix_sdk::RoomDisplayName::Named("My Actions".into()), target.room_id.clone()));
+                        self.navigate_to_room(cx, None, &BasicRoomDetails::RoomId(room));
+                    }
+                    continue;
+                }
+                if let MiniAppsAction::OpenAgentChat(target) = action {
+                    let account = current_user_id();
+                    let state = cx.get_global::<RoomsListRef>().get_room_state(&target.room_id);
+                    if let Err(message) = self.open_agent_chat(cx, target, account.as_deref(), state) {
+                        enqueue_popup_notification(message, PopupKind::Info, None);
+                    }
+                    continue;
+                }
+                let modal = self.ui.modal(cx, ids!(octoscript_apps_modal));
+                if matches!(action, MiniAppsAction::Close) {
+                    self.close_mini_apps(cx);
+                } else if !self.embedded && cfg!(any(target_os = "macos", target_os = "windows", all(target_os = "linux", not(target_env = "ohos")))) {
+                    self.ui.mini_apps_window_host(cx, ids!(mini_apps_window_host)).action(cx, action);
+                } else if let Some(panel) = self.hosted_window(cx, HostedWindow::MiniApps) {
+                    panel.as_mini_apps_panel().action(cx, ModalRef::default(), action);
+                } else {
+                    self.ui.mini_apps_panel(cx, ids!(octoscript_apps_modal.content)).action(cx, modal, action);
+                }
                 continue;
             }
             if let Some(action) = action.downcast_ref::<MiniAppAction>() {
@@ -923,7 +994,20 @@ impl App {
         self.ui.web_browser(cx, ids!(web_browser_modal.content)).action(cx, modal, &WebBrowserAction::Close);
     }
 
+    fn close_mini_apps(&mut self, cx: &mut Cx) {
+        self.ui.mini_apps_window_host(cx, ids!(mini_apps_window_host)).close(cx);
+        let modal = self.ui.modal(cx, ids!(octoscript_apps_modal));
+        self.ui.mini_apps_panel(cx, ids!(octoscript_apps_modal.content)).action(cx, modal, &MiniAppsAction::Close);
+        self.close_hosted_window(cx, HostedWindow::MiniApps, true);
+    }
+
     fn clear_session_ui(&mut self, cx: &mut Cx) {
+        self.lifecycle.last_app_state_save = None;
+        self.pending_signup_navigation = None;
+        self.ui.image_viewer(cx, ids!(image_viewer_modal.content)).reset(cx);
+        for id in [ids!(image_viewer_modal), ids!(file_upload_modal), ids!(invite_modal), ids!(invite_confirmation_modal), ids!(event_source_modal), ids!(positive_confirmation_modal), ids!(delete_confirmation_modal), ids!(block_user_modal), ids!(join_leave_modal), ids!(room_history_modal), ids!(tsp_verification_modal)] {
+            self.ui.modal(cx, id).close(cx);
+        }
         self.close_web_browser(cx);
         #[cfg(feature = "agent_chat")]
         {
@@ -936,7 +1020,7 @@ impl App {
         let modal = self.ui.modal(cx, ids!(space_management_modal));
         self.ui.space_management_panel(cx, ids!(space_management_modal.content)).action(cx, modal, &SpaceManagementAction::Close);
         crate::assistant::set_current_room(None);
-        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
+        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser, HostedWindow::MiniApps] {
             self.close_hosted_window(cx, window, true);
         }
         let modal = self.ui.modal(cx, ids!(moments_modal));
@@ -948,8 +1032,7 @@ impl App {
             let modal = self.ui.modal(cx, ids!(agent_ops_modal));
             self.ui.agent_ops_panel(cx, ids!(agent_ops_modal.content)).action(cx, modal, &AgentOpsAction::Close);
         }
-        let mini_modal=self.ui.modal(cx,ids!(octoscript_apps_modal));
-        self.ui.mini_apps_panel(cx,ids!(octoscript_apps_modal.content)).action(cx,mini_modal,&MiniAppsAction::Close);
+        self.close_mini_apps(cx);
         let modal = self.ui.modal(cx, ids!(article_app_modal));
         self.ui.article_panel(cx, ids!(article_app_modal.content)).action(cx, modal, &ArticleAction::Close);
         self.article_window_host(cx).close(cx);
@@ -1037,6 +1120,7 @@ pub fn register_widgets(vm: &mut ScriptVm) {
 
     crate::assistant::sheet::script_mod(vm);
     crate::agent_access::script_mod(vm);
+    crate::home::account_list::script_mod(vm);
     crate::settings::script_mod(vm);
     // RoomInputBar depends on these Home widgets; preload them before room::script_mod.
     crate::home::location_preview::script_mod(vm);
@@ -1139,6 +1223,15 @@ impl AppMain for App {
         crate::agent_access::publish(current_user_id(), &self.app_state.agent_access);
         let scope = &mut Scope::with_data(&mut self.app_state);
         self.ui.handle_event(cx, event, scope);
+        // The backend may restore the next account only after every child has
+        // consumed ClearAppState, including hidden settings/room widgets.
+        if let Event::Actions(actions) = event {
+            for action in actions {
+                if let Some(LogoutAction::ClearAppState { on_clear_appstate }) = action.downcast_ref() {
+                    on_clear_appstate.notify_one();
+                }
+            }
+        }
         crate::theme::packages::after_event(cx, event);
         if matches!(event, Event::LiveEdit) {
             crate::i18n::refresh_ui(cx, &self.ui);
@@ -1162,6 +1255,7 @@ enum HostedWindow {
     Moments,
     Article,
     WebBrowser,
+    MiniApps,
 }
 
 impl HostedWindow {
@@ -1170,6 +1264,7 @@ impl HostedWindow {
             Self::Moments => live_id!(moments),
             Self::Article => live_id!(article),
             Self::WebBrowser => live_id!(web_browser),
+            Self::MiniApps => live_id!(mini_apps),
         }
     }
 }
@@ -1206,6 +1301,11 @@ impl App {
                         use mod.widgets.*
                         ArticlePanel { padding: Inset{top: 0 bottom: 0} }
                     }),
+                    HostedWindow::MiniApps => script_eval!(vm, {
+                        use mod.prelude.widgets.*
+                        use mod.widgets.*
+                        MiniAppsPanel {}
+                    }),
                     HostedWindow::WebBrowser => script_eval!(vm, {
                         use mod.prelude.widgets.*
                         use mod.widgets.*
@@ -1218,6 +1318,7 @@ impl App {
                 HostedWindow::Moments => "Moments",
                 HostedWindow::Article => "Article editor",
                 HostedWindow::WebBrowser => "Website",
+                HostedWindow::MiniApps => "Mini apps",
             });
             crate::module::open_window(window.key(), title, panel.clone());
             self.hosted_windows.push((window, panel.clone()));
@@ -1240,6 +1341,7 @@ impl App {
             }
             HostedWindow::Article => panel.as_article_panel().action(cx, ModalRef::default(), &ArticleAction::Close),
             HostedWindow::WebBrowser => panel.as_web_browser().action(cx, ModalRef::default(), &WebBrowserAction::Close),
+            HostedWindow::MiniApps => panel.as_mini_apps_panel().action(cx, ModalRef::default(), &MiniAppsAction::Close),
         }
         #[cfg(feature = "octosense-module")]
         if close_host_window {
@@ -1251,7 +1353,7 @@ impl App {
     fn handle_closed_hosted_windows(&mut self, cx: &mut Cx) {
         #[cfg(feature = "octosense-module")]
         for key in crate::module::take_closed_windows() {
-            for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
+            for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser, HostedWindow::MiniApps] {
                 if window.key() == key {
                     self.close_hosted_window(cx, window, false);
                 }
@@ -1290,6 +1392,7 @@ impl App {
                 HostedWindow::Moments => script_eval!(vm, {mod.widgets.MomentsPanel {}}),
                 HostedWindow::Article => script_eval!(vm, {mod.widgets.ArticlePanel {}}),
                 HostedWindow::WebBrowser => script_eval!(vm, {mod.widgets.WebBrowser {}}),
+                HostedWindow::MiniApps => script_eval!(vm, {mod.widgets.MiniAppsPanel {}}),
             };
             panel.script_apply(vm, &Apply::ScriptReapply, &mut Scope::empty(), value);
         }
@@ -1313,7 +1416,7 @@ impl App {
         self.lifecycle.shutdown_started = true;
         self.preserve_reader_session(cx);
         self.close_web_browser(cx);
-        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser] {
+        for window in [HostedWindow::Moments, HostedWindow::Article, HostedWindow::WebBrowser, HostedWindow::MiniApps] {
             self.close_hosted_window(cx, window, true);
         }
         self.persist_runtime_state(cx, "module close");
@@ -1443,6 +1546,7 @@ impl App {
                     self.moments_window_host(cx).close(cx);
                     self.article_window_host(cx).close(cx);
                     self.close_web_browser(cx);
+                    self.close_mini_apps(cx);
                 }
             // Not every close goes through a close request first, so also catch the close itself.
             Event::WindowClosed(e)
@@ -1451,6 +1555,7 @@ impl App {
                     self.moments_window_host(cx).close(cx);
                     self.article_window_host(cx).close(cx);
                     self.close_web_browser(cx);
+                    self.close_mini_apps(cx);
                 }
             Event::Foreground => {
                 if !self.lifecycle.is_foreground {
@@ -1559,6 +1664,52 @@ impl App {
         }
         self.ui.view(cx, ids!(login_screen_view)).set_visible(cx, show_login);
         self.ui.view(cx, ids!(home_screen_view)).set_visible(cx, !show_login);
+    }
+
+    fn cancel_signup_navigation(&mut self) {
+        if let Some((target, _)) = self.pending_signup_navigation.take() {
+            if self.waiting_to_navigate_to_room.as_ref()
+                .is_some_and(|(room, _)| room.room_id() == &target.room_id)
+            {
+                self.waiting_to_navigate_to_room = None;
+            }
+        }
+    }
+
+    fn resume_signup_navigation(&mut self, cx: &mut Cx, room: &RoomNameId, account: Option<&ruma::UserId>) {
+        let Some((target, started)) = self.pending_signup_navigation.as_ref() else { return };
+        if &target.room_id != room.room_id() { return; }
+        let destination = (account == Some(target.account.as_ref()) && started.elapsed() < Duration::from_secs(300))
+            .then(|| target.event_id.clone());
+        // Consume the generic join waiter too: an expired/cancelled signup must
+        // not navigate later through the ordinary room-loaded handler.
+        self.cancel_signup_navigation();
+        if let Some(event) = destination {
+            cx.action(NavigationBarAction::GoToHome);
+            cx.action(RoomHistoryAction::Jump { room: room.clone(), event });
+        }
+    }
+
+    fn open_agent_chat(&mut self, cx: &mut Cx, target: &crate::miniapps::palpo::AgentChatTarget,
+        account: Option<&ruma::UserId>, room_state: Option<RoomState>) -> Result<(), &'static str> {
+        if account != Some(target.account.as_ref()) {
+            return Err(crate::i18n::tr("Your account changed. Reopen Hagency from your current account."));
+        }
+        if room_state != Some(RoomState::Joined) {
+            return Err("The project room is still syncing. Refresh My Agents and try again shortly.");
+        }
+        self.cancel_signup_navigation();
+        self.waiting_to_navigate_to_room = None;
+        self.close_mini_apps(cx);
+        cx.action(NavigationBarAction::GoToHome);
+        let room_name_id = cx.get_global_ref::<RoomsListRef>()
+            .and_then(|rooms| rooms.get_room_name(&target.room_id))
+            .unwrap_or_else(|| RoomNameId::empty(target.room_id.clone()));
+        cx.widget_action(self.ui.widget_uid(), RoomsListAction::Selected(SelectedRoom::JoinedRoom {
+            room_name_id,
+        }));
+        enqueue_rooms_list_update(RoomsListUpdate::ScrollToRoom(target.room_id.clone()));
+        Ok(())
     }
 
     /// Navigates to the given `destination_room`, optionally closing the `room_to_close`.
@@ -1707,6 +1858,7 @@ mod session_state_tests {
             (HostedWindow::Moments, WidgetRef::default()),
             (HostedWindow::Article, WidgetRef::default()),
             (HostedWindow::WebBrowser, WidgetRef::default()),
+            (HostedWindow::MiniApps, WidgetRef::default()),
         ];
         app.app_state.logged_in = true;
         app.app_state.app_prefs.send_on_enter = false;
@@ -2062,6 +2214,72 @@ mod back_navigation_tests {
         assert!(generated.iter().any(|action| matches!(action.downcast_ref::<WebBrowserAction>(),
             Some(WebBrowserAction::ReadArticle { room: actual_room, event: actual_event }) if actual_room == &room && actual_event == &event)));
         assert!(!app.ui.modal(&mut cx, ids!(article_app_modal)).is_open());
+    }
+
+    #[test]
+    fn agent_chat_only_opens_a_joined_room_for_the_current_account() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        let account = ruma::user_id!("@owner:example.test");
+        let target = crate::miniapps::palpo::AgentChatTarget::from_reply(&serde_json::json!({
+            "v": 1, "requestId": "fleet_a:request_b", "account": account,
+            "roomId": "!project:example.test", "agentMxid": "@fleet_a_agent:example.test",
+        }), account.as_str()).unwrap();
+        for (actor, state) in [
+            (None, Some(RoomState::Joined)),
+            (Some(ruma::user_id!("@other:example.test")), Some(RoomState::Joined)),
+            (Some(account), None), (Some(account), Some(RoomState::Invited)),
+            (Some(account), Some(RoomState::Left)),
+        ] {
+            let actions = cx.capture_actions(|cx| assert!(app.open_agent_chat(cx, &target, actor, state).is_err()));
+            assert!(actions.is_empty(), "refused navigation must not auto-join or select a room");
+        }
+        let actions = cx.capture_actions(|cx| app.open_agent_chat(cx, &target, Some(account), Some(RoomState::Joined)).unwrap());
+        assert!(actions.iter().any(|a| matches!(a.as_widget_action().cast::<RoomsListAction>(),
+            RoomsListAction::Selected(SelectedRoom::JoinedRoom { room_name_id }) if room_name_id.room_id() == &target.room_id)));
+        assert!(app.waiting_to_navigate_to_room.is_none());
+    }
+
+    #[test]
+    fn signup_invitation_preserves_the_event_but_not_a_stale_navigation() {
+        use crate::miniapps::palpo::SignupApprovalTarget;
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        let mut app = embedded_app(&mut cx);
+        let account = ruma::user_id!("@admin:example.test");
+        let target = SignupApprovalTarget::from_reply(&serde_json::json!({
+            "v": 1, "requestId": "a".repeat(32), "account": account,
+            "roomId": "!signups:example.test", "eventId": "$original",
+        }), account.as_str()).unwrap();
+        let room = RoomNameId::empty(target.room_id.clone());
+        let unrelated = RoomNameId::empty(ruma::room_id!("!other:example.test").to_owned());
+
+        for (actor, age, should_jump) in [
+            (Some(account), 0, true),
+            (Some(account), 301, false),
+            (Some(ruma::user_id!("@other:example.test")), 0, false),
+            (None, 0, false),
+        ] {
+            app.pending_signup_navigation = Some((target.clone(), std::time::Instant::now() - Duration::from_secs(age)));
+            app.waiting_to_navigate_to_room = Some((BasicRoomDetails::RoomId(room.clone()), None));
+            let generated = cx.capture_actions(|cx| app.resume_signup_navigation(cx, &unrelated, actor));
+            assert!(generated.is_empty());
+            assert!(app.pending_signup_navigation.is_some());
+            let generated = cx.capture_actions(|cx| app.resume_signup_navigation(cx, &room, actor));
+            let jumps: Vec<_> = generated.iter().filter_map(|a| a.downcast_ref::<RoomHistoryAction>()).collect();
+            if should_jump {
+                assert!(matches!(jumps.as_slice(), [RoomHistoryAction::Jump { room: actual, event }]
+                    if actual.room_id() == room.room_id() && event == &target.event_id));
+            } else {
+                assert!(generated.is_empty(), "expired or different-account navigation must be discarded");
+            }
+            assert!(app.pending_signup_navigation.is_none());
+            assert!(app.waiting_to_navigate_to_room.is_none());
+        }
+
+        app.pending_signup_navigation = Some((target, std::time::Instant::now()));
+        app.waiting_to_navigate_to_room = Some((BasicRoomDetails::RoomId(unrelated.clone()), None));
+        app.cancel_signup_navigation();
+        assert_eq!(app.waiting_to_navigate_to_room.as_ref().unwrap().0.room_id(), unrelated.room_id());
     }
 
     #[test]

@@ -39,6 +39,8 @@ script_mod! {
     // Ghost icon button for the composer toolbar: transparent fill, subtle
     // hover/press wash, secondary-grey icon.
     mod.widgets.ComposerToolButton = mod.widgets.RobrixIconButton {
+        width: 40 height: 40
+        align: Align{x: 0.5 y: 0.5}
         margin: Inset{left: 2, right: 2, top: 2, bottom: 2}
         padding: Inset{left: 8, right: 8, top: 6, bottom: 6}
         spacing: 0,
@@ -52,6 +54,13 @@ script_mod! {
         }
         icon_walk: Walk{width: 20, height: 20}
         text: "",
+    }
+
+    mod.widgets.ComposerEmojiPickerButton = mod.widgets.ComposerToolButton {
+        draw_icon.svg: ICON_ADD_REACTION
+    }
+    mod.widgets.ComposerMoreButton = mod.widgets.ComposerToolButton {
+        draw_icon.svg: ICON_ADD
     }
 
     // Same ghost shell, but renders a text glyph (e.g. "@" / "/") instead of an
@@ -177,9 +186,7 @@ script_mod! {
                     }
 
                     // Toggles the quick emoji row above the input.
-                    emoji_picker_button := mod.widgets.ComposerToolButton {
-                        draw_icon +: { svg: (ICON_ADD_REACTION) }
-                    }
+                    emoji_picker_button := mod.widgets.ComposerEmojiPickerButton {}
 
                     // Inserts a "/" to open the slash-command popup.
                     slash_command_button := mod.widgets.ComposerGlyphButton {
@@ -187,9 +194,7 @@ script_mod! {
                     }
 
                     // Opens the popup menu with the other things to send (photos, files, location).
-                    open_popup_menu_button := mod.widgets.ComposerToolButton {
-                        draw_icon +: { svg: (ICON_ADD) }
-                    }
+                    open_popup_menu_button := mod.widgets.ComposerMoreButton {}
                 }
 
                 emoji_picker_popup := View {
@@ -380,21 +385,10 @@ script_mod! {
                         }
                     }
                     send_message_button +: {
-                        visible: false width: 54 height: 36 margin: 0
-                        text: #(crate::i18n::tr("Send")) i18n_text: "Send" icon_walk: Walk{width: 0 height: 0}
-                        draw_text +: {color: mod.widgets.RINX_ON_ACCENT text_style: theme.font_regular {font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}
+                        visible: false margin: 0
                     }
-                    mobile_emoji_button := mod.widgets.ComposerToolButton {
-                        width: 32 height: 36 padding: 4 margin: 0
-                        draw_icon +: {svg: ICON_ADD_REACTION color: mod.widgets.RINX_INK}
-                        icon_walk: Walk{width: 26 height: 26}
-                    }
-                    mobile_more_button := mod.widgets.ComposerToolButton {
-                        width: 32 height: 36 padding: 4 margin: 0
-                        align: Align{x: 0.5 y: 0.5}
-                        draw_icon +: {svg: ICON_ADD color: mod.widgets.RINX_INK}
-                        icon_walk: Walk{width: 22 height: 22}
-                    }
+                    mobile_emoji_button := mod.widgets.ComposerEmojiPickerButton {margin: 0}
+                    mobile_more_button := mod.widgets.ComposerMoreButton {margin: 0}
                 }
             }
         }
@@ -496,6 +490,11 @@ impl ScriptHook for RoomInputBar {
 
 impl Widget for RoomInputBar {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        if matches!(event, Event::LiveEdit | Event::ScriptReapply) {
+            // Theme/language reapplication restores the template SVG. Restore
+            // the room's lock badge after the VM has finished that apply walk.
+            self.update_encryption_state(cx, self.is_encrypted);
+        }
         // Pressing `Escape` will stop speech recording/recognition regardless of key focus.
         let should_end_speech = matches!(event, Event::KeyDown(KeyEvent { key_code: KeyCode::Escape, .. }))
             && matches!(self.speech_phase(), Some(SpeechPhase::Listening) | Some(SpeechPhase::Starting));
@@ -1463,7 +1462,8 @@ impl RoomInputBar {
         let sign_with_tsp = self.is_tsp_signing_enabled(_cx);
 
         // `robius-file-picker` ensures that this `on_picked` callback runs on a bg thread.
-        move |result| handle_picked_file(result, move |file_data| {
+        let epoch = crate::account_session::epoch();
+        move |result| handle_picked_file(epoch, result, move |file_data| {
             Ok(PendingUpload::Attachment(AttachmentUpload {
                 timeline_kind,
                 file_data,

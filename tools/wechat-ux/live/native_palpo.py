@@ -1,25 +1,44 @@
 #!/usr/bin/env python3
-"""Actual production Splash + Rinx host adapter + local Palpo backend.
+"""Shared native Palpo instrument helpers and coordinator test entry point.
 
-No live account or deployment is used. Matrix is the Palpo test fixture;
+The executable scenario uses Rust Palpo with an explicit loopback Matrix fixture.
 SQLite workflows, HTTP sessions, Rinx transport, widgets and inputs are real.
 """
-import argparse
-import hashlib
 import json
 import os
 from pathlib import Path
 import socket
 import subprocess
 import time
-import uuid
 import urllib.error
-from PIL import Image
 from native_probe import NativeApp
 
 class PalpoApp(NativeApp):
     def snap(self):
         return [w for w in super().snap() if w.get('ty') != 'Splash']
+
+    def click_id(self, widget_id, modal=False):
+        window_width, window_height = self.request('/s')['w'][0]['sz']
+        def target():
+            return next((w for w in self.request('/snap', all=1)['s']
+                         if w.get('i') == widget_id and w['r'][2] > 0 and w['r'][3] > 0
+                         and w['r'][1] >= 30 and w['r'][1] + w['r'][3] <= window_height - 15), None)
+        found = target()
+        if found is None:
+            x, y = min(300, window_width - 30), min(650, window_height - 40)
+            self.request('/m', k='scroll', x=x, y=y, dy=-3000, wait=1)
+            for _ in range(24):
+                found = target()
+                if found is not None:
+                    break
+                self.request('/m', k='scroll', x=x, y=y, dy=130, wait=1)
+        if found is None:
+            raise AssertionError(f'Could not scroll widget into view: {widget_id}')
+        x, y, width, height = found['r']
+        if modal:
+            self.request('/click', x=x + width / 2, y=y + height / 2, wait=0)
+        else:
+            self.click(x + width / 2, y + height / 2)
 
     def request(self, route, **params):
         # SDK 1f3b1de can fail wait=1 after already applying the input when a
@@ -71,7 +90,7 @@ def launch(root, binary, endpoint, admin=False, narrow=False, session_file=None)
         try:
             status = app.request('/s')
             if status['w']:
-                app.wait_text('Contribute resources', timeout=10)
+                app.wait_text('Pending actions stay here', timeout=10)
                 return app
         except (OSError, NativeBridgeError):
             pass
@@ -101,115 +120,11 @@ def inspect(app):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--palpo', type=Path, required=True)
-    parser.add_argument('--node', type=Path, required=True)
-    parser.add_argument('--binary', type=Path, default=Path('target/fast/examples/palpo_miniapp'))
-    parser.add_argument('--smoke', action='store_true')
-    args = parser.parse_args()
-    root = Path('target/palpo-validation') / uuid.uuid4().hex
-    root.mkdir(parents=True)
-    service_port = port()
-    log = (root / 'server.log').open('w')
-    server = subprocess.Popen([str(args.node), str(args.palpo / 'web-admin/test/miniapp-native-fixture.mjs'), str(service_port), str(root.resolve())], stdout=log, stderr=subprocess.STDOUT)
-    apps = []
-    report = {'passed': False, 'evidence': str(root.resolve()), 'checks': [], 'binary_sha256': hashlib.sha256(args.binary.read_bytes()).hexdigest()}
-    try:
-        for _ in range(80):
-            if 'ready' in (root / 'server.log').read_text(): break
-            if server.poll() is not None: raise RuntimeError((root / 'server.log').read_text())
-            time.sleep(.1)
-        endpoint = f'http://127.0.0.1:{service_port}'
-        owner = launch(root / 'owner', args.binary, endpoint, narrow=True); apps.append(owner)
-        owner.capture('owner-inbox-light')
-        owner.click_id('contribute'); owner.wait_text('Resource pool name')
-        fill(owner, 'Resource pool name', 'Research pool')
-        fill(owner, 'What can you contribute?', 'Shared coding capacity')
-        owner.capture('contribution-draft')
-        owner.request('/k', c='ArrowLeft', shift=1, wait=1)
-        owner.request('/k', c='ArrowLeft', shift=1, wait=1)
-        before = inspect(owner)
-        for theme in ('dark', 'violet', 'light'):
-            owner.request('/event', data='palpo:' + theme, wait=1)
-            time.sleep(.25)
-            owner.wait_text('Research pool')
-            after = inspect(owner)
-            assert (before['heap'], before['calls']) == (after['heap'], after['calls']), (before, after)
-            capture = owner.capture('contribution-' + theme)
-            im = Image.open(capture).convert('RGB')
-            bright = sum(1 for rgb in im.getdata() if sum(rgb) > 540) / (im.width * im.height)
-            assert (bright < .2 if theme == 'dark' else bright > .65), (theme, bright)
+    # ADR 0011 replaces the contribution/admin-verdict fixture with Rust and
+    # a delegated coordinator. Keep this established CLI entry point usable.
+    from native_palpo_coordinator import main as run_coordinator
+    run_coordinator()
 
-        owner.request('/t', t='XY', wait=1)
-        edited = json.loads((owner.root / 'profile/app/draft.json').read_text())
-        assert edited['payload']['reason'] == 'Shared coding capaciXY', edited
-        owner.request('/k', c='KeyZ', cmd=1, wait=1)
-        restored = json.loads((owner.root / 'profile/app/draft.json').read_text())
-        assert restored['payload']['reason'] == 'Shared coding capacity', restored
-        report['checks'].append('live theme changes preserve draft, focus, selection, undo, isolate and request count; dark pixels verified')
-        if not args.smoke:
-            # A process restart restores the same draft and trusted request ID.
-            draft_before = json.loads((owner.root / 'profile/app/draft.json').read_text())
-            owner.stop(); apps.remove(owner)
-            owner = launch(root / 'owner', args.binary, endpoint, narrow=True); apps.append(owner)
-            owner.click_id('resume'); owner.wait_text('Research pool')
-            assert json.loads((owner.root / 'profile/app/draft.json').read_text()) == draft_before
-            report['checks'].append('draft and idempotency key survive process restart')
-            owner.click_id('submit'); owner.wait_text('Open latest result')
-            admin = launch(root / 'admin', args.binary, endpoint, admin=True); apps.append(admin)
-            admin.wait_text('Research pool'); admin.click_id('review'); admin.wait_text('Approve')
-            admin.click_id('approve'); admin.wait_text('Decision reason')
-            fill(admin, 'Decision reason', 'Approved for research')
-            admin.click_id('submit'); admin.wait_text('No requests in this view')
-            owner.click_id('needs'); owner.wait_text('Research pool'); owner.click_id('review'); owner.wait_text('Save configuration')
-            owner.capture('contribution-approved-owner-handoff')
-            report['checks'].append('owner contribution and administrator approval through real HTTP/SQLite')
-            owner.click_id('resources'); owner.wait_text('Request project here'); owner.click_id('choose')
-            owner.wait_text('Project name'); fill(owner, 'Project name', 'Native test project')
-            fill(owner, 'What will your project do?', 'Run a research agent')
-            owner.click_id('submit'); owner.wait_text('Native test project')
-            admin.click_id('inbox'); admin.wait_text('Native test project'); admin.click_id('review')
-            admin.click_id('approve'); admin.wait_text('Decision reason'); fill(admin, 'Decision reason', 'Project approved')
-            admin.click_id('submit'); admin.wait_text('No requests in this view')
-            owner.click_id('needs'); owner.wait_text('Native test project')
-            # Two cards exist (contribution handoff and project activation).
-            reviews = [w for w in owner.snap() if w['i'] == 'review']
-            target = min(reviews, key=lambda w: w['r'][1])
-            x, y, w, h = target['r']; owner.click(x+w/2, y+h/2)
-            owner.wait_text('Continue approved work'); owner.click_id('continue_work')
-            owner.wait_text('Latest result received.')
-            owner.click_id('projects'); owner.wait_text('Native test project'); owner.click_id('agent')
-            owner.wait_text('Use this resource'); owner.click_id('choose'); owner.wait_text('Agent name')
-            fill(owner, 'Agent name', 'ResearchBot')
-            # Scroll the form's last fields and submit into the viewport.
-            owner.request('/m', k='scroll', x=300, y=650, dy=350, wait=1)
-            owner.click_id('submit'); owner.wait_text('Initial request:')
-            owner.capture('agent-request-pending')
-            backend = json.loads((root / 'backend.json').read_text())
-            assert backend['projects'] == 1 and backend['requests'] == 1, backend
-            report['checks'].append('project approval, owner activation and named agent request through native forms')
-            owner.click_id('disconnect'); owner.wait_text('Rinx remains signed in')
-            assert json.loads((root / 'backend.json').read_text())['logouts'] == 0
-            report['checks'].append('mini-app disconnect preserves Matrix login')
-
-        for app in apps:
-            errors = [line for line in (app.output / 'native.log').read_text().splitlines()
-                      if '[E]' in line or 'on_render closure failed' in line or 'callback error' in line]
-            assert not errors, errors
-        report['passed'] = True
-    finally:
-        for app in apps:
-            try:
-                app.capture('final-state')
-                (app.root / 'final-tree.json').write_text(json.dumps(app.request('/snap', all=1), indent=2))
-            except Exception: pass
-            finally: app.stop()
-        server.terminate()
-        try: server.wait(timeout=8)
-        except subprocess.TimeoutExpired: server.kill(); server.wait()
-        log.close()
-        (root / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
-        print(json.dumps(report, indent=2))
 
 if __name__ == '__main__':
     main()

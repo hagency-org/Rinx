@@ -17,7 +17,7 @@ script_mod! {
         width: Fill height: Fit
         padding: 0
         selectable: true
-        draw_selection +: { color: mod.widgets.RINX_SELECTED }
+        draw_selection +: { color: mod.widgets.RINX_TEXT_SELECTION_BG }
     }
 
     // A pill-shaped widget that displays a Matrix link,
@@ -116,7 +116,7 @@ script_mod! {
         font_size: (MESSAGE_FONT_SIZE),
         font_color: (MESSAGE_TEXT_COLOR),
         draw_text +: { color: (MESSAGE_TEXT_COLOR) }
-        draw_selection +: { color: mod.widgets.RINX_SELECTED }
+        draw_selection +: { color: mod.widgets.RINX_TEXT_SELECTION_BG }
         text_style_normal: mod.widgets.MESSAGE_TEXT_STYLE {
             font_size: (MESSAGE_FONT_SIZE)
             line_spacing: (MESSAGE_TEXT_LINE_SPACING)
@@ -229,6 +229,10 @@ impl Widget for MessagePlaintext {
 
     fn draw_walk(&mut self, cx: &mut Cx2d, _scope: &mut Scope, walk: Walk) -> DrawStep {
         self.flow.begin(cx, walk);
+        // TextFlow computes selection rectangles after laying out the glyphs.
+        // Reserve their draw call first, like TextInput, so the opaque theme
+        // selection background cannot cover the text when those rects arrive.
+        self.flow.draw_selection.append_to_draw_call(cx);
         self.flow.draw_text(cx, self.text.as_ref());
         self.flow.end(cx);
         DrawStep::done()
@@ -882,6 +886,15 @@ impl Widget for HtmlOrPlaintext {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        if self.selectable && self.view(cx, ids!(html_view)).visible() {
+            if let Some(mut html) = self.html(cx, ids!(html_view.html)).borrow_mut() {
+                // Html owns TextFlow::begin/end. Reserve its block backgrounds
+                // and selection in that order before Html emits any glyphs.
+                // Selection is a background layer, not an opaque text overlay.
+                html.text_flow.draw_block.append_to_draw_call(cx);
+                html.text_flow.draw_selection.append_to_draw_call(cx);
+            }
+        }
         // Keep all existing per-message font overrides, including mobile bubble
         // size and notice italics, in sync with the selectable plain-text draw.
         if self.selectable && self.view(cx, ids!(plaintext_view)).visible() {

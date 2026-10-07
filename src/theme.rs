@@ -1,5 +1,5 @@
 //! Rinx's adapter to the host-owned Makepad stylesheet (ADR 0009).
-//! No renderer or copied OctoSense preset catalog lives here.
+//! Portable palettes compile to the host stylesheet; Makepad owns rendering and reload.
 use makepad_widgets::{
     desktop_style::{self, DesktopStyle, StyleSheet},
     *,
@@ -7,6 +7,7 @@ use makepad_widgets::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 pub mod packages;
+pub mod presets;
 pub mod system;
 pub mod host;
 
@@ -96,6 +97,18 @@ impl Selection {
     pub fn stylesheet(self, family: DesktopStyle) -> StyleSheet {
         let dark = self.appearance == Appearance::Dark;
         let mut sheet = StyleSheet::load_with_appearance(family, dark);
+        // Native platform palettes can use the same fill for app and container.
+        // Chat needs a visible canvas behind its message surfaces in either mode.
+        let palette = if dark {
+            [("bg_app", "171c24"), ("bg_container", "2b3644"),
+             ("inset", "222b36"), ("text", "f1f5f9"), ("bevel_outset_2", "465669")]
+        } else {
+            [("bg_app", "e9edf2"), ("bg_container", "ffffff"),
+             ("inset", "f2f5f8"), ("text", "17212b"), ("bevel_outset_2", "c6d0dd")]
+        };
+        for (role, value) in palette {
+            sheet.theme.push_str(&format!("\nmod.theme.color_{role} = #x{value}\n"));
+        }
         let (accent, on_accent) = match (self.accent, dark) {
             (Accent::Teal, false) => ("09616f", "ffffff"),
             (Accent::Teal, true) => ("72d3df", "103239"),
@@ -352,6 +365,15 @@ pub fn script_mod(vm: &mut ScriptVm) {
     };
     let accent_hover = mix(s.accent, away, 0.08);
     let accent_down = mix(s.accent, away, 0.16);
+    let dark = luminance(s.page) < 0.5;
+    // TextFlow paints its selection rectangles over glyphs. Keep the highlight
+    // translucent so selected text remains legible on both light and dark UI.
+    let text_selection_bg = vec4(
+        s.accent.x,
+        s.accent.y,
+        s.accent.z,
+        if dark { 0.34 } else { 0.26 },
+    );
     script_eval!(vm, {
         mod.widgets.RINX_PAGE = #(s.page)
         mod.widgets.RINX_SURFACE = #(s.surface)
@@ -364,6 +386,7 @@ pub fn script_mod(vm: &mut ScriptVm) {
         mod.widgets.RINX_HOVER = #(s.hover)
         mod.widgets.RINX_PRESSED = #(s.pressed)
         mod.widgets.RINX_SELECTED = #(s.selected)
+        mod.widgets.RINX_TEXT_SELECTION_BG = #(text_selection_bg)
         mod.widgets.RINX_ACCENT_HOVER = #(accent_hover)
         mod.widgets.RINX_ACCENT_DOWN = #(accent_down)
     });
@@ -419,6 +442,12 @@ mod controls {
     script_mod! {
         use mod.prelude.widgets.*
         use mod.widgets.*
+        // TextInput reserves its selection before drawing text, then submits
+        // the rectangles after the caret. Give it an explicit layer so the
+        // caret's background draw cannot prevent reuse of that reserved call.
+        mod.widgets.TextInput = mod.widgets.TextInput {
+            draw_selection +: {draw_call_group: @selection}
+        }
         mod.widgets.RinxLabel = Label {draw_text +: {color: RINX_INK text_style: theme.font_regular{font_size: RINX_BODY_SIZE}}}
         mod.widgets.RinxPageTitle = mod.widgets.RinxLabel {draw_text.text_style: theme.font_bold{font_size: RINX_TITLE_SIZE}}
         mod.widgets.RinxHint = mod.widgets.RinxLabel {draw_text +: {color: RINX_MUTED text_style.font_size: RINX_META_SIZE}}
@@ -489,6 +518,10 @@ pub(crate) mod tests {
                         (s.muted, s.page),
                         (s.muted, s.surface),
                         (s.on_accent, s.accent),
+                        (s.ink, s.role("color.chat.incoming")),
+                        (s.ink, s.role("color.chat.outgoing")),
+                        (s.muted, s.role("color.chat.incoming")),
+                        (s.muted, s.role("color.chat.outgoing")),
                     ] {
                         assert!(
                             contrast(ink, bg) >= 4.5,
@@ -496,6 +529,12 @@ pub(crate) mod tests {
                             contrast(ink, bg)
                         );
                     }
+                    for bubble in ["color.chat.incoming", "color.chat.outgoing"] {
+                        assert!(contrast(s.page, s.role(bubble)) >= 1.15,
+                            "{appearance:?}/{accent:?}: {bubble} blends into the canvas");
+                    }
+                    assert!(contrast(s.role("color.chat.incoming"), s.role("color.chat.outgoing")) >= 1.15,
+                        "{appearance:?}/{accent:?}: incoming and outgoing fills are indistinguishable");
                     let away = if luminance(s.on_accent) > 0.5 {
                         rgb(0)
                     } else {

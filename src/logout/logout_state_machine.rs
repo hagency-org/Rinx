@@ -238,6 +238,7 @@ impl LogoutStateMachine {
     pub async fn execute(&self) -> Result<()> {
         log!("LogoutStateMachine::execute() started");
         
+        let logged_out_user = get_client().and_then(|client| client.user_id().map(ToOwned::to_owned));
         // Set logout in progress flag
         set_logout_in_progress(true);
         
@@ -358,6 +359,13 @@ impl LogoutStateMachine {
             }
         }
         
+        // Stop token-refresh callbacks before deleting just this identity's
+        // token file. Keep its data; other accounts are untouched.
+        crate::account_session::close().await;
+        if let Some(user) = logged_out_user {
+            crate::accounts::remove_session(crate::app_data_dir(), &user).await?;
+            crate::accounts::refresh()?;
+        }
         // Clean app state
         self.transition_to(
             LogoutState::CleaningAppState,

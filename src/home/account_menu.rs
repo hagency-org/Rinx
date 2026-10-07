@@ -8,11 +8,8 @@
 //!   * "Account Settings"       → opens Settings
 //!   * "Log Out"                → opens the LogoutConfirmModal
 //!
-//! robrix2's version also lists every *other* logged-in account as a switch row, plus a
-//! "Log Into More Accounts" item. Both depend on robrix2's multi-account layer
-//! (`account_manager` and `request_switch_account`), which upstream Rinx does not
-//! have — it holds exactly one session. Those rows are therefore not rendered here; the
-//! card keeps the same shape so they can slot back in if multi-account is ever ported.
+//! Saved identities and Add Account use the shared picker; switches preserve
+//! the inactive account's session and encryption database.
 //!
 //! It reuses the same anchored-overlay pattern as the room context menu: a full-screen
 //! scrim whose inner `main_content` card is positioned by the App (which clamps it to
@@ -191,6 +188,8 @@ script_mod! {
                 draw_bg.color: (mod.widgets.RBX_DIVIDER)
             }
 
+            account_list := mod.widgets.AccountList {}
+
             // --- Actions ---
             settings_item := mod.widgets.AccountMenuItem {
                 draw_icon +: { svg: (ICON_SETTINGS) }
@@ -280,6 +279,10 @@ impl Widget for AccountMenu {
 
 impl WidgetMatchEvent for AccountMenu {
     fn handle_actions(&mut self, cx: &mut Cx, actions: &Actions, _scope: &mut Scope) {
+        if actions.iter().any(|action| action.downcast_ref::<crate::accounts::AccountAction>().is_some()) {
+            self.close(cx);
+            return;
+        }
         if self.button(cx, ids!(settings_item)).clicked(actions) {
             cx.action(NavigationBarAction::OpenSettings);
             self.close(cx);
@@ -336,7 +339,8 @@ impl AccountMenu {
             + HEADER_H
             + DIVIDER_H
             + ACTION_COUNT * ACTION_H
-            + ROW_COUNT * ROW_SPACING;
+            + ROW_COUNT * ROW_SPACING
+            + crate::accounts::saved().len().min(4) as f64 * 40.0 + 46.0;
         dvec2(ACCOUNT_MENU_WIDTH, height)
     }
 

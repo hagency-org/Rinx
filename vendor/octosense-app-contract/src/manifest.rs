@@ -28,7 +28,7 @@ pub const SCHEMA_MINOR: u32 = 0;
 /// build honours. Empty in `1.0.0`: every feature added in `1.x` that
 /// restricts or changes what an app gets is added here, with the field
 /// that carries it, in the same release.
-pub const KNOWN_FEATURES: &[&str] = &["palpo-admin-v1"];
+pub const KNOWN_FEATURES: &[&str] = &["palpo-admin-v1", "palpo-account-navigation-v1", "palpo-agent-navigation-v1", "palpo-actions-room-v1", "palpo-project-room-picker-v1"];
 
 /// Parse a manifest: [`AppManifest::parse`].
 pub fn parse(json: &str) -> Result<AppManifest, String> {
@@ -109,8 +109,10 @@ pub const KNOWN_CAPABILITIES: &[&str] = &[
     "palpo.session.disconnect",
     "palpo.catalog.list",
     "palpo.projects.list",
+    "palpo.projects.select_room",
     "palpo.projects.create",
     "palpo.requests.list",
+    "palpo.requests.open",
     "palpo.requests.create",
     "palpo.fleets.list",
     "palpo.fleets.register",
@@ -124,15 +126,22 @@ pub const KNOWN_CAPABILITIES: &[&str] = &[
     "palpo.agents.register",
     "palpo.agents.rename",
     "palpo.agents.retire",
+    "palpo.agents.control",
     "palpo.activity.list",
     "palpo.accounts.list",
+    "palpo.accounts.open",
     "palpo.inbox.list",
     "palpo.inbox.submit",
     "palpo.inbox.get",
     "palpo.inbox.decide",
+    "palpo.inbox.recover",
     "palpo.inbox.activate",
     "palpo.inbox.seen",
     "palpo.inbox.snooze",
+    "palpo.actions.room.get",
+    "palpo.actions.room.ensure",
+    "palpo.notifications.get",
+    "palpo.notifications.set",
     "matrix.account_info",
     "matrix.device",
     "matrix.dm_find",
