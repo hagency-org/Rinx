@@ -597,9 +597,6 @@ impl Widget for RoomHistoryPanel {
             return;
         }
         self.view.handle_event(cx, event, scope);
-        if matches!(event, Event::Signal) {
-            self.redraw(cx);
-        }
         if let Event::Actions(actions) = event {
             for action in actions {
                 if let Some(page) = action.downcast_ref::<HistoryPage>() {

@@ -38,6 +38,8 @@ pub fn view_from_live_ptr(
 
 /// The top-level main application module.
 pub mod app;
+#[cfg(feature = "palpo-instrument")]
+pub mod performance;
 pub mod accounts;
 mod account_session;
 /// Rinx as an OctoSense app module.

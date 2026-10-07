@@ -159,6 +159,8 @@ impl AppMain for App {
         self::script_mod(vm)
     }
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        #[cfg(feature = "palpo-instrument")]
+        if rinx::performance::begin(cx, event) { return; }
         if let Event::Custom(command) = event {
             if command == "review:fonts" {
                 let mut report = Vec::new();
@@ -193,7 +195,13 @@ impl AppMain for App {
             }
         }
         self.match_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        rinx::performance::phase(cx, "rinx_match");
         self.ui.handle_event(cx, event, &mut Scope::empty());
+        #[cfg(feature = "palpo-instrument")]
+        rinx::performance::phase(cx, "rinx_widgets");
         rinx::theme::packages::after_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        rinx::performance::end(cx);
     }
 }

@@ -172,7 +172,6 @@ impl Widget for MobileChatInfo {
         if self.owner.is_some() && self.owner != current_user_id() { self.clear(); }
         if matches!(event, Event::Signal) {
             crate::avatar_cache::process_avatar_updates(cx);
-            self.view.redraw(cx);
         }
         self.view.handle_event(cx, event, scope);
         if let Event::Actions(actions) = event {

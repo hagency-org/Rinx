@@ -219,16 +219,20 @@ impl UserProfileUpdate {
 
 /// Processes all pending user profile updates in the queue.
 ///
-/// This function requires passing in a reference to `Cx`,
-/// which isn't used, but acts as a guarantee that this function
-/// must only be called by the main UI thread.
-pub fn process_user_profile_updates(_cx: &mut Cx) {
+/// Invalidates consumers only when data arrived. A generic UI signal also
+/// accompanies GPU work and must not itself cause another frame.
+pub fn process_user_profile_updates(cx: &mut Cx) {
+    let mut changed = false;
     USER_PROFILE_CACHE.with_borrow_mut(|cache| {
         while let Some(update) = PENDING_USER_PROFILE_UPDATES.pop() {
             // Insert the updated info into the cache
             update.apply_to_cache(cache);
+            changed = true;
         }
     });
+    if changed {
+        cx.redraw_all();
+    }
 }
 
 /// Invokes the given closure with cached user profile info for the given user ID
@@ -434,5 +438,26 @@ mod tests_room_member_entry {
     fn failed_is_not_a_loaded_member() {
         assert!(RoomMemberEntry::Failed.loaded().is_none());
         assert!(RoomMemberEntry::Requested.loaded().is_none());
+    }
+
+    #[test]
+    fn profile_delivery_redraws_consumers_but_empty_signals_do_not() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        cx.new_draw_event = Default::default();
+        process_user_profile_updates(&mut cx);
+        assert!(!cx.new_draw_event.redraw_all);
+
+        let user_id = user_id!("@perf:example.org").to_owned();
+        enqueue_user_profile_update(UserProfileUpdate::UserProfileOnly(UserProfile {
+            user_id: user_id.clone(),
+            username: Some("Updated profile".into()),
+            avatar_state: AvatarState::Unknown,
+        }));
+        process_user_profile_updates(&mut cx);
+        assert!(cx.new_draw_event.redraw_all);
+        assert_eq!(with_user_profile(&mut cx, user_id, None, false, |p, _| p.username.clone()).flatten().as_deref(), Some("Updated profile"));
+        cx.new_draw_event = Default::default();
+        process_user_profile_updates(&mut cx);
+        assert!(!cx.new_draw_event.redraw_all);
     }
 }

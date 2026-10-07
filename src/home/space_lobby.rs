@@ -1105,7 +1105,6 @@ impl Widget for SpaceLobbyScreen {
         if let Event::Signal = event {
             // Process any pending avatar updates
             avatar_cache::process_avatar_updates(cx);
-            self.redraw(cx);
         }
 
         if let Event::Actions(actions) = event {

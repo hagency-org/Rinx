@@ -143,6 +143,8 @@ impl AppMain for App {
         self::script_mod(vm)
     }
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        #[cfg(feature = "palpo-instrument")]
+        if rinx::performance::begin(cx, event) { return; }
         if let Event::Custom(command) = event {
             let mut selection = theme::selection(cx).unwrap_or_default();
             match command.as_str() {
@@ -186,9 +188,16 @@ impl AppMain for App {
             theme::select(cx, Selection { ..selection }).unwrap();
         }
         self.match_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        rinx::performance::phase(cx, "rinx_match");
         if !matches!(event, Event::Draw(_)) {
             self.ui.handle_event(cx, event, &mut Scope::empty());
         }
         theme::packages::after_event(cx, event);
+        #[cfg(feature = "palpo-instrument")]
+        {
+            rinx::performance::phase(cx, "rinx_widgets");
+            rinx::performance::end(cx);
+        }
     }
 }

@@ -82,10 +82,10 @@ pub fn enqueue_room_preview_update(update: RoomPreviewUpdate) {
 
 /// Processes all pending room preview updates in the queue.
 ///
-/// This function requires passing in a reference to `Cx`,
-/// which isn't used, but acts as a guarantee that this function
-/// must only be called by the main UI thread.
-pub fn process_room_preview_updates(_cx: &mut Cx) {
+/// Redraws all consumers when a result arrives, including those whose signal
+/// handler runs after another widget has already drained this shared queue.
+pub fn process_room_preview_updates(cx: &mut Cx) {
+    let mut changed = false;
     ROOM_PREVIEW_CACHE.with_borrow_mut(|cache| {
         while let Some(update) = PENDING_ROOM_PREVIEW_UPDATES.pop() {
             let RoomPreviewUpdate { room_or_alias_id, fetched } = update;
@@ -99,8 +99,12 @@ pub fn process_room_preview_updates(_cx: &mut Cx) {
                     loaded_at: Instant::now(),
                 },
             );
+            changed = true;
         }
     });
+    if changed {
+        cx.redraw_all();
+    }
 }
 
 /// Maps a [`FetchedRoomAvatar`] (which has already attempted to fetch any
@@ -198,4 +202,35 @@ pub fn clear_all_pending_requests() {
 pub fn clear_room_preview_cache(_cx: &mut Cx) {
     while PENDING_ROOM_PREVIEW_UPDATES.pop().is_some() {}
     ROOM_PREVIEW_CACHE.with_borrow_mut(|cache| cache.clear());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preview_delivery_invalidates_all_consumers_once() {
+        let mut cx = Cx::new(Box::new(|_, _| {}));
+        cx.new_draw_event = Default::default();
+        process_room_preview_updates(&mut cx);
+        assert!(!cx.new_draw_event.redraw_all);
+        let room = ruma::room_id!("!perf:example.org").to_owned();
+        let key: OwnedRoomOrAliasId = room.clone().into();
+        enqueue_room_preview_update(RoomPreviewUpdate {
+            room_or_alias_id: key.clone(),
+            fetched: FetchedRoomPreview {
+                room_name_id: RoomNameId::new(matrix_sdk::RoomDisplayName::Named("Loaded preview".into()), room),
+                room_avatar: FetchedRoomAvatar::default(),
+                canonical_alias: None, topic: None, num_joined_members: 1,
+                num_active_members: None, room_type: None, join_rule: None,
+                is_world_readable: None, state: None, is_direct: None, heroes: None,
+            },
+        });
+        process_room_preview_updates(&mut cx);
+        assert!(cx.new_draw_event.redraw_all);
+        assert!(matches!(get_or_fetch_room_preview(&mut cx, &key, &[]), CachedRoomPreview::Loaded { room_name_id, .. } if room_name_id.to_string() == "Loaded preview"));
+        cx.new_draw_event = Default::default();
+        process_room_preview_updates(&mut cx);
+        assert!(!cx.new_draw_event.redraw_all);
+    }
 }
