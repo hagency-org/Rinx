@@ -28,9 +28,11 @@ script_mod! {
         padding: Inset{top: 3, bottom: 3, left: 10, right: 4.5}
         margin: 0
         spacing: 4,
-        align: Align{x: 0.0, y: 0.5},
+        align: Align{x: 0.0, y: 0.0},
 
         Icon {
+            height: Fill
+            align: Align{x: 0.0, y: 0.5}
             draw_icon +: {
                 svg: (ICON_SEARCH),
                 color: (RBX_FG_TERTIARY),
@@ -67,10 +69,13 @@ script_mod! {
 
         clear_button := RobrixNeutralIconButton {
             visible: false,
+            width: 28
+            height: Fill
             margin: 0
-            padding: Inset{top: 5, bottom: 5, left: 9, right: 9},
+            padding: 0
             spacing: 0,
             align: Align{x: 0.5, y: 0.5}
+            label_walk: Walk{width: 0, height: 0}
             draw_icon.svg: (ICON_CLOSE)
             icon_walk: Walk{width: Fit, height: 10, margin: 0}
         }
