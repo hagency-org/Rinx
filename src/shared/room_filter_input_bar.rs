@@ -13,6 +13,7 @@ script_mod! {
 
         width: Fill,
         height: 35,
+        flow: Right,
 
         show_bg: true,
         draw_bg +: {
