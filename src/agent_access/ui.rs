@@ -49,7 +49,7 @@ script_mod! {
     use mod.widgets.*
     let Text = Label {width: Fill height: Fit flow: Flow.Right{wrap: true} draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular{font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}}
     let Action = RobrixNeutralIconButton {height: 40 icon_walk: Walk{width: 0 height: 0} spacing: 0}
-    let Input = TextInput {width: Fill height: 40}
+    let Input = mod.widgets.RinxTextInput {width: Fill height: 40}
     mod.widgets.AgentAccessPanel = #(AgentAccessPanel::register_widget(vm)) {
         ..mod.widgets.SolidView
         width: Fill height: Fill flow: Down padding: Inset{top: 32 left: 16 right: 16 bottom: 12} spacing: 8 draw_bg.color: mod.widgets.RINX_PAGE
@@ -60,9 +60,9 @@ script_mod! {
         status := Text {}
         ScrollYView {width: Fill height: Fill flow: Down spacing: 10
             Text {text: #(crate::i18n::tr("Registered agents")) i18n_text: "Registered agents"}
-            agents := DropDown {width: Fill labels: ["Select an agent"]}
+            agents := mod.widgets.RinxDropDown {width: Fill labels: ["Select an agent"]}
             agent_id := Input {empty_text: "@agent:example.org"}
-            framework := DropDown {width: Fill labels: ["Agent" "Octos AppService" "Octos Direct" "Hermes" "OpenClaw"]}
+            framework := mod.widgets.RinxDropDown {width: Fill labels: ["Agent" "Octos AppService" "Octos Direct" "Hermes" "OpenClaw"]}
             Text {text: #(crate::i18n::tr("New chats with registered agents are unencrypted. Existing chats keep their encryption.")) i18n_text: "New chats with registered agents are unencrypted. Existing chats keep their encryption."}
             register := Action {width: Fill text: #(crate::i18n::tr("Look up and register / re-check")) i18n_text: "Look up and register / re-check"}
             View {width: Fill height: 40 spacing: 8
@@ -78,7 +78,7 @@ script_mod! {
                 save := Action {width: Fill text: #(crate::i18n::tr("Save")) i18n_text: "Save"}
                 health := Action {width: Fill text: #(crate::i18n::tr("Check service")) i18n_text: "Check service"}
             }
-            rooms := DropDown {width: Fill labels: ["Select a room"]}
+            rooms := mod.widgets.RinxDropDown {width: Fill labels: ["Select a room"]}
             binding_id := Input {empty_text: #(crate::i18n::tr("Bot Matrix ID to bind")) i18n_empty_text: "Bot Matrix ID to bind"}
             remark := Input {empty_text: #(crate::i18n::tr("Binding remark")) i18n_empty_text: "Binding remark"}
             bindings := Text {}

@@ -223,9 +223,9 @@ script_mod! {
         form := View {
             width: Fill height: Fit flow: Down spacing: 12 padding: 20
             Label {text: #(crate::i18n::tr("Web address")) i18n_text: "Web address" draw_text +: {color: mod.widgets.RINX_INK}}
-            mini_url := TextInput {width: Fill height: 46 empty_text: #(crate::i18n::tr("https://example.com")) i18n_empty_text: "https://example.com"}
+            mini_url := mod.widgets.RinxTextInput {width: Fill height: 46 empty_text: #(crate::i18n::tr("https://example.com")) i18n_empty_text: "https://example.com"}
             Label {text: #(crate::i18n::tr("Card title")) i18n_text: "Card title" draw_text +: {color: mod.widgets.RINX_INK}}
-            mini_title := TextInput {width: Fill height: 46 empty_text: #(crate::i18n::tr("Name your mini app")) i18n_empty_text: "Name your mini app"}
+            mini_title := mod.widgets.RinxTextInput {width: Fill height: 46 empty_text: #(crate::i18n::tr("Name your mini app")) i18n_empty_text: "Name your mini app"}
             mini_recipient := Label {width: Fill flow: Flow.Right{wrap: true} draw_text.color: mod.widgets.RINX_ACCENT}
             mini_choose_chat := RobrixNeutralIconButton {text: #(crate::i18n::tr("Choose chat")) i18n_text: "Choose chat" height: 44}
             View {
@@ -236,7 +236,7 @@ script_mod! {
         }
         chat_picker := View {
             visible: false width: Fill height: Fill flow: Down spacing: 12 padding: 20
-            mini_chat_search := TextInput {width: Fill height: 44 empty_text: #(crate::i18n::tr("Find a chat")) i18n_empty_text: "Find a chat"}
+            mini_chat_search := mod.widgets.RinxTextInput {width: Fill height: 44 empty_text: #(crate::i18n::tr("Find a chat")) i18n_empty_text: "Find a chat"}
             chat_list := PortalList {
                 width: Fill height: Fill
                 Chat := NavigationBarButton {

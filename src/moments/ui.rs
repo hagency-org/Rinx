@@ -249,7 +249,7 @@ script_mod! {
         compose_page := ScrollYView {visible: false width: Fill height: Fill flow: Down padding: 16 spacing: 14
             composer_audience := Body {draw_text.color: mod.widgets.RINX_ACCENT}
             Hint {text: #(crate::i18n::tr("Everyone in this timeline can see its posts, comments, likes and members. Invitations apply to this whole timeline. Earlier history may be unavailable to new viewers.")) i18n_text: "Everyone in this timeline can see its posts, comments, likes and members. Invitations apply to this whole timeline. Earlier history may be unavailable to new viewers."}
-            moments_body := TextInput {width: Fill height: 150 empty_text: #(crate::i18n::tr("What's on your mind?")) i18n_empty_text: "What's on your mind?" is_multiline: true}
+            moments_body := mod.widgets.RinxTextInput {width: Fill height: 150 empty_text: #(crate::i18n::tr("What's on your mind?")) i18n_empty_text: "What's on your mind?" is_multiline: true}
             // Thumbnails of the photos/videos picked for this post, in a 3x3 grid like WeChat.
             compose_album := View {width: Fill{max: 360} height: Fit flow: Down spacing: 3 visible: false show_bg: true draw_bg.color: #x00000000
                 row0 := View {width: Fill height: 96 flow: Right spacing: 3 show_bg: true draw_bg.color: #x00000000 cell0 := Cell{c0 := Photo{}} cell1 := Cell{c1 := Photo{}} cell2 := Cell{c2 := Photo{}}}
@@ -302,7 +302,7 @@ script_mod! {
             }
             editor_hint := Hint {visible: false margin: Inset{left: 16 right: 16}}
             View {width: Fill height: 54 flow: Right padding: 8 spacing: 8
-                moments_comment := TextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("Comment")) i18n_empty_text: "Comment"}
+                moments_comment := mod.widgets.RinxTextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("Comment")) i18n_empty_text: "Comment"}
                 moments_comment_send := RobrixPositiveIconButton {text: #(crate::i18n::tr("Send")) i18n_text: "Send" width: 60 height: Fill spacing: 0 icon_walk: Walk{width: 0 height: 0}}
             }
         }
@@ -342,7 +342,7 @@ script_mod! {
                 }
             }
             audience_invite_controls := View {width: Fill height: 40 flow: Right spacing: 8
-                audience_user := TextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("@friend:homeserver")) i18n_empty_text: "@friend:homeserver" autocapitalize: None}
+                audience_user := mod.widgets.RinxTextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("@friend:homeserver")) i18n_empty_text: "@friend:homeserver" autocapitalize: None}
                 audience_invite := ActionButton {text: #(crate::i18n::tr("Invite")) i18n_text: "Invite" width: 65}
             }
             audience_review := ActionButton {text: #(crate::i18n::tr("Confirm audience for saved retry")) i18n_text: "Confirm audience for saved retry"}

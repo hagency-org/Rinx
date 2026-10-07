@@ -129,7 +129,7 @@ script_mod! {
             visible: false width: Fill height: Fit
             draw_text +: {color: mod.widgets.RINX_MUTED text_style: theme.font_regular{font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
         }
-        agent_reply_fold := ButtonFlat {
+        agent_reply_fold := mod.widgets.RinxFlatButton {
             visible: false width: Fit height: 32 padding: 4
             draw_text +: {color: mod.widgets.RINX_ACCENT text_style: theme.font_regular{font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}
         }
