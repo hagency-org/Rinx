@@ -82,8 +82,8 @@ script_mod! {
 
                     View {
                         width: Fit height: Fit flow: Right spacing: 12
-                        login_language_en := ButtonFlat {text: "English"}
-                        login_language_zh := ButtonFlat {text: "简体中文"}
+                        login_language_en := mod.widgets.RinxFlatButton {text: "English"}
+                        login_language_zh := mod.widgets.RinxFlatButton {text: "简体中文"}
                     }
 
                     server_step := View {
@@ -228,7 +228,7 @@ script_mod! {
                             align: Align{x: 0.5, y: 0.5}
                             text: #(crate::i18n::tr("Continue with single sign-on")) i18n_text: "Continue with single sign-on"
                         }
-                        password_option_button := ButtonFlat {
+                        password_option_button := mod.widgets.RinxFlatButton {
                             visible: false
                             width: Fit, height: Fit
                             text: #(crate::i18n::tr("Sign in with a password instead")) i18n_text: "Sign in with a password instead"
@@ -282,7 +282,7 @@ script_mod! {
                                 text: #(crate::i18n::tr("Sign in with password")) i18n_text: "Sign in with password"
                             }
                         }
-                        register_option_button := ButtonFlat {
+                        register_option_button := mod.widgets.RinxFlatButton {
                             width: Fit, height: Fit
                             text: #(crate::i18n::tr("Create an account")) i18n_text: "Create an account"
                         }
@@ -309,7 +309,7 @@ script_mod! {
                                 align: Align{x: 0.5, y: 0.5}
                                 text: #(crate::i18n::tr("Create account")) i18n_text: "Create account"
                             }
-                            back_to_login_button := ButtonFlat {
+                            back_to_login_button := mod.widgets.RinxFlatButton {
                                 width: Fit, height: Fit
                                 text: #(crate::i18n::tr("Back to sign in")) i18n_text: "Back to sign in"
                             }

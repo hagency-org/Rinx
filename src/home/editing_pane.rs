@@ -34,9 +34,8 @@ script_mod! {
         show_bg: true,
         draw_bg +: {
             color: (COLOR_PRIMARY)
-            border_radius: 5.0
-            border_color: (COLOR_SECONDARY)
-            border_size: 2.0
+            border_radius: mod.widgets.RINX_RADIUS_SM
+            border_size: 0.0
             // shadow_color: #0006
             // shadow_radius: 0.0
             // shadow_offset: vec2(0.0,0.0)

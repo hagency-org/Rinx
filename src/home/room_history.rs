@@ -285,7 +285,7 @@ script_mod! {
         browser := View {
             width: Fill height: Fill flow: Down spacing: 8
             search_bar := View {width: Fill height: 40 flow: Right margin: Inset{left: 12 right: 12} spacing: 8
-                history_query := TextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("Search messages or file names")) i18n_empty_text: "Search messages or file names"}
+                history_query := mod.widgets.RinxTextInput {width: Fill height: Fill empty_text: #(crate::i18n::tr("Search messages or file names")) i18n_empty_text: "Search messages or file names"}
                 search_history := RobrixNeutralIconButton {text: #(crate::i18n::tr("Search")) i18n_text: "Search" width: 64 height: Fill spacing: 0 icon_walk: Walk{width: 0 height: 0}}
             }
             filters := View {width: Fill height: 36 flow: Right margin: Inset{left: 12 right: 12} spacing: 4

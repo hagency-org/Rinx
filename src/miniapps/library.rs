@@ -64,7 +64,7 @@ script_mod! {
             account := Label {width: Fill draw_text.color: mod.widgets.RINX_MUTED}
             room_group := View {width: Fill height: Fit flow: Down spacing: 8
                 Label {text: "Allow access to a conversation" draw_text.color: mod.widgets.RINX_MUTED}
-                room := DropDown {width: Fill labels: ["No conversation access"]}
+                room := mod.widgets.RinxDropDown {width: Fill labels: ["No conversation access"]}
             }
             availability := Label {width: Fill draw_text.color: mod.widgets.RINX_MUTED}
             actions := View {width: Fill height: Fit flow: Right spacing: 12

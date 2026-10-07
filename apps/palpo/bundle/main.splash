@@ -140,7 +140,7 @@ mod.widgets.PalpoCard = RoundedView{width: Fill height: Fit flow: Down padding: 
     draw_bg +: {color: mod.widgets.RINX_FIELD border_color: mod.widgets.RINX_BORDER border_size: 0 border_radius: 8}}
 mod.widgets.PalpoActions = View{width: Fill height: Fit flow: Flow.Right{wrap: true} spacing: 8 wrap_spacing: 8}
 mod.widgets.PalpoError = RoundedView{width: Fill height: Fit flow: Down padding: 12 spacing: 6
-    draw_bg +: {color: mod.widgets.RINX_DANGER_BG border_color: mod.widgets.RINX_DANGER_FG border_size: 1 border_radius: theme.corner_radius}}
+    draw_bg +: {color: mod.widgets.RINX_DANGER_BG border_color: mod.widgets.RINX_DANGER_FG border_size: 1 border_radius: mod.widgets.RINX_RADIUS_MD}}
 
 fn navigation_page(){
     if P.page != "form" { return P.page }

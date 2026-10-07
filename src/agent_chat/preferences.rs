@@ -35,7 +35,7 @@ script_mod! {
                     text_style: theme.font_bold { font_size: (mod.widgets.SETTINGS_REGULAR_FONT_SIZE) },
                 }
             }
-            agent_ops := ButtonFlat {width: Fill height: 40 text: #(crate::i18n::tr("Agent Operations")) i18n_text: "Agent Operations"}
+            agent_ops := mod.widgets.RinxFlatButton {width: Fill height: 40 text: #(crate::i18n::tr("Agent Operations")) i18n_text: "Agent Operations"}
             Html {
                 width: Fill, height: Fit
                 flow: Flow.Right{wrap: true}

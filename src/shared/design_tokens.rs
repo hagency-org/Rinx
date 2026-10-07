@@ -238,23 +238,15 @@ script_mod! {
     mod.widgets.RBX_FOCUS_TINT  = mod.widgets.RINX_ACCENT
 
     // =========================================================================
-    // 11. RADIUS scale — bigger & softer than the legacy RADIUS_* (4/6/8).
-    //     Cards lean on radius + border, not heavy shadow.
-    //     NOTE: the card default (MD) is intentionally tight (8) so cards line up
-    //     visually with the room composer / input bar (which uses XS = 6). Keep
-    //     cards calm and crisp rather than pill-soft.
+    // 11. RADIUS scale — bounded by the shared content-box geometry. A theme's
+    //     surface radius must not grow past a compact control's text padding.
     // =========================================================================
-    // Tightened scale (squarer look, per design direction): every surface gets
-    // smaller corners than the original 6/8/8/16/20.
-    // Extra-extra-small: tightest radius, used by Agent Registry cards/sheets.
-    mod.widgets.RBX_RADIUS_XXS  = theme.corner_radius * 0.67
-    mod.widgets.RBX_RADIUS_XS   = theme.corner_radius * 0.67
-    mod.widgets.RBX_RADIUS_SM   = theme.corner_radius * 1
-    // Card / sheet default. Shares SM's value on purpose: small surfaces and
-    // cards use one calm, tight radius.
-    mod.widgets.RBX_RADIUS_MD   = theme.corner_radius * 1
-    mod.widgets.RBX_RADIUS_LG   = theme.corner_radius * 2
-    mod.widgets.RBX_RADIUS_XL   = theme.corner_radius * 2.67
+    mod.widgets.RBX_RADIUS_XXS  = mod.widgets.RINX_RADIUS_XS
+    mod.widgets.RBX_RADIUS_XS   = mod.widgets.RINX_RADIUS_XS
+    mod.widgets.RBX_RADIUS_SM   = mod.widgets.RINX_RADIUS_SM
+    mod.widgets.RBX_RADIUS_MD   = mod.widgets.RINX_RADIUS_MD
+    mod.widgets.RBX_RADIUS_LG   = mod.widgets.RINX_RADIUS_LG
+    mod.widgets.RBX_RADIUS_XL   = mod.widgets.RINX_RADIUS_XL
     // Fully-rounded (pill) — use on badges / chips.
     mod.widgets.RBX_RADIUS_PILL = 100.0
 

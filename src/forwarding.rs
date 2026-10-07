@@ -213,7 +213,7 @@ script_mod! {
         }
         recipients := View {
             visible: false width: Fill height: Fill flow: Down spacing: 8 padding: 12
-            recipient_search := TextInput {width: Fill height: 40 empty_text: #(crate::i18n::tr("Find a chat")) i18n_empty_text: "Find a chat"}
+            recipient_search := mod.widgets.RinxTextInput {width: Fill height: 40 empty_text: #(crate::i18n::tr("Find a chat")) i18n_empty_text: "Find a chat"}
             modes := View {
                 width: Fill height: Fit flow: Right spacing: 8
                 individual := RobrixNeutralIconButton {text: #(crate::i18n::tr("✓ Individually")) i18n_text: "✓ Individually" width: Fill height: 44 spacing: 0 icon_walk: Walk{width: 0 height: 0}}

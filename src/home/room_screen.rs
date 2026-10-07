@@ -392,7 +392,7 @@ script_mod! {
                 height: Fit
                 flow: Down,
                 padding: 12
-                draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: theme.corner_radius border_size: 1 border_color: mod.widgets.RINX_BORDER}
+                draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
 
                 username_view := View {
                     flow: Right,
@@ -456,7 +456,7 @@ script_mod! {
         }
         bubble := RoundedView {
             width: Fill height: Fit flow: Down padding: 10
-            draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: theme.corner_radius border_size: 1 border_color: mod.widgets.RINX_BORDER}
+            draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
             message := HtmlOrPlaintext {
                 selectable: true
                 plaintext_view +: {pt_label +: {draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE}}}}
@@ -590,7 +590,7 @@ script_mod! {
                 flow: Down,
                 margin: Inset{left: 10}
                 padding: 12
-                draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: theme.corner_radius border_size: 1 border_color: mod.widgets.RINX_BORDER}
+                draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
 
                 message := HtmlOrPlaintext { selectable: true }
                 mini_app_card := mod.widgets.MiniAppCard {}

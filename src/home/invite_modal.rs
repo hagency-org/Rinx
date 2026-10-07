@@ -18,7 +18,7 @@ script_mod! {
 
         title := ModalTitle {}
 
-        registered_agents := DropDown {width: Fill labels: ["People you know"]}
+        registered_agents := mod.widgets.RinxDropDown {width: Fill labels: ["People you know"]}
         user_id_input := RobrixTextInput {
             draw_text +: {
                 text_style: REGULAR_TEXT {font_size: (11 * mod.widgets.RINX_TEXT_SCALE)},

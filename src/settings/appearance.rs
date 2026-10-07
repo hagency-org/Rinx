@@ -17,7 +17,7 @@ fn mode_labels(translated: bool) -> Vec<String> {
 script_mod! {
     use mod.prelude.widgets.*
     use mod.widgets.*
-    let AppearanceChoice = DropDown {
+    let AppearanceChoice = mod.widgets.RinxDropDown {
         width: Fill height: RINX_CONTROL_HEIGHT
         align: Align{x: 0.0 y: 0.5}
         margin: 0 padding: Inset{left: 12 right: 32}
@@ -25,7 +25,7 @@ script_mod! {
         draw_bg +: {
             color: RINX_SURFACE color_hover: RINX_HOVER color_down: RINX_PRESSED
             border_color: RINX_BORDER border_color_focus: RINX_ACCENT
-            arrow_color: RINX_INK border_radius: theme.corner_radius
+            arrow_color: RINX_INK border_radius: RINX_RADIUS_SM
             pixel: fn() {
                 let sdf = Sdf2d.viewport(self.pos * self.rect_size)
                 sdf.box(0.5, 0.5, self.rect_size.x - 1.0, self.rect_size.y - 1.0, self.border_radius)
@@ -60,14 +60,14 @@ script_mod! {
         chat_preview := View {width: Fill height: Fit flow: Down spacing: 6
             RinxHint {text: #(crate::i18n::tr("Chat preview")) i18n_text: "Chat preview"}
             RoundedView {width: Fill{max: 480} height: Fit flow: Down padding: 12 spacing: 8
-                draw_bg +: {color: RINX_PAGE border_color: RINX_BORDER border_size: 1 border_radius: 8}
+                draw_bg +: {color: RINX_PAGE border_size: 0 border_radius: RINX_RADIUS_MD}
                 RoundedView {width: Fit height: Fit padding: Inset{left: 12 right: 12 top: 8 bottom: 8}
-                    draw_bg +: {color: RINX_INCOMING border_color: RINX_BORDER border_size: 1 border_radius: 8}
+                    draw_bg +: {color: RINX_INCOMING border_size: 0 border_radius: RINX_RADIUS_SM}
                     RinxLabel {text: #(crate::i18n::tr("Incoming message")) i18n_text: "Incoming message"}
                 }
                 View {width: Fill height: Fit align: Align{x: 1.0}
                     RoundedView {width: Fit height: Fit padding: Inset{left: 12 right: 12 top: 8 bottom: 8}
-                        draw_bg +: {color: RINX_OUTGOING border_color: RINX_BORDER border_size: 1 border_radius: 8}
+                        draw_bg +: {color: RINX_OUTGOING border_size: 0 border_radius: RINX_RADIUS_SM}
                         RinxLabel {text: #(crate::i18n::tr("Your message")) i18n_text: "Your message"}
                     }
                 }

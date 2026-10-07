@@ -60,7 +60,7 @@ script_mod! {
             catalog_title := RinxLabel {text: #(crate::i18n::tr("Built-in apps")) i18n_text: "Built-in apps"}
             catalog_list := PortalList {width: Fill height: Fill
                 App := RoundedView {width: Fill height: 104 padding: 16 spacing: 12 flow: Right align: Align{y: 0.5}
-                    draw_bg +: {color: RINX_SURFACE border_color: RINX_BORDER border_size: 1 border_radius: theme.corner_radius}
+                    draw_bg +: {color: RINX_SURFACE border_color: RINX_BORDER border_size: 1 border_radius: RINX_RADIUS_MD}
                     article_icon := View {width: Fit height: Fit
                         Icon {width: 28 height: 28 draw_icon +: {svg: ICON_FILE color: RINX_ACCENT}}
                     }
@@ -79,24 +79,24 @@ script_mod! {
         }
         import_form := View {visible: false width: Fill height: Fit flow: Down spacing: 8
             bundle_path := View {width: Fill height: Fit
-                path := TextInput {width: Fill empty_text: "OctoSense bundle folder"}
+                path := mod.widgets.RinxTextInput {width: Fill empty_text: "OctoSense bundle folder"}
             }
             room_access := View {width: Fill height: Fit
-                room := TextInput {width: Fill empty_text: "Room ID to allow (optional)"}
+                room := mod.widgets.RinxTextInput {width: Fill empty_text: "Room ID to allow (optional)"}
             }
             assistant_status := Label {width: Fill draw_text.color: mod.widgets.RINX_MUTED text: ""}
             core := View {width: Fill height: Fit flow: Down spacing: 6
-                local_family := TextInput {width: Fill empty_text: "Assistant on this device: provider (e.g. deepseek)"}
-                local_model := TextInput {width: Fill empty_text: "Model"}
-                local_base_url := TextInput {width: Fill empty_text: "Base URL (optional)"}
-                local_key := TextInput {width: Fill is_password: true empty_text: "API key (kept in Rinx's own runtime)"}
+                local_family := mod.widgets.RinxTextInput {width: Fill empty_text: "Assistant on this device: provider (e.g. deepseek)"}
+                local_model := mod.widgets.RinxTextInput {width: Fill empty_text: "Model"}
+                local_base_url := mod.widgets.RinxTextInput {width: Fill empty_text: "Base URL (optional)"}
+                local_key := mod.widgets.RinxTextInput {width: Fill is_password: true empty_text: "API key (kept in Rinx's own runtime)"}
                 local_buttons := View {width: Fill height: Fit spacing: 8
                     use_local := RinxButton {text: "Use this device"}
                     turn_off := RinxButton {text: "Turn assistant off"}
                 }
-                endpoint := TextInput {width: Fill empty_text: "Octos server URL"}
-                profile := TextInput {width: Fill empty_text: "Octos profile"}
-                token := TextInput {width: Fill is_password: true empty_text: "Octos access token"}
+                endpoint := mod.widgets.RinxTextInput {width: Fill empty_text: "Octos server URL"}
+                profile := mod.widgets.RinxTextInput {width: Fill empty_text: "Octos profile"}
+                token := mod.widgets.RinxTextInput {width: Fill is_password: true empty_text: "Octos access token"}
                 connect := RinxButton {text: "Connect Octos"}
             }
             buttons := View {width: Fill height: Fit spacing: 8
@@ -115,7 +115,7 @@ script_mod! {
         project_room_picker := View {visible: false width: Fill height: Fill flow: Down spacing: 12
             RinxPageTitle {text: #(crate::i18n::tr("Choose a project room")) i18n_text: "Choose a project room"}
             RinxHint {width: Fill flow: Flow.Right{wrap: true} text: #(crate::i18n::tr("Choose a private, unencrypted room you created. Submitting the project will invite its Hagency representative. Rinx shares only your selected room with Hagency.")) i18n_text: "Choose a private, unencrypted room you created. Submitting the project will invite its Hagency representative. Rinx shares only your selected room with Hagency."}
-            rooms := DropDown {width: Fill labels: [#(crate::i18n::tr("Choose a room"))] popup_menu +: {width: 280}}
+            rooms := mod.widgets.RinxDropDown {width: Fill labels: [#(crate::i18n::tr("Choose a room"))] popup_menu +: {width: 280}}
             selected_room := RinxHint {width: Fill flow: Flow.Right{wrap: true} text: ""}
             use_room := RinxPrimaryButton {text: #(crate::i18n::tr("Use this room")) i18n_text: "Use this room"}
             cancel_room := RinxButton {text: #(crate::i18n::tr("Cancel")) i18n_text: "Cancel"}
