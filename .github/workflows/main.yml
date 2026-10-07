@@ -19,6 +19,20 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  windows-bundles:
+    name: Windows system-app integrity
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            crates/system-apps
+            vendor/octosense-app-contract
+      - run: cargo test --manifest-path vendor/octosense-app-contract/Cargo.toml
+      - run: cargo test --locked --manifest-path crates/system-apps/Cargo.toml
+      - run: cargo run --locked --manifest-path crates/system-apps/Cargo.toml -- .
   native:
     name: Native build and unit tests
     runs-on: macos-14

@@ -1,0 +1,3 @@
+# Bundle integrity covers exact file bytes. Preserve the repository bytes even
+# on Windows checkouts with core.autocrlf=true; never rewrite bundled assets.
+/apps/**/bundle/** -text

@@ -26,7 +26,12 @@ pub fn digest_dir(root: &Path) -> Result<String, String> {
         // Path, then length, then content: without the length a file ending
         // where the next path begins could be shuffled without changing the
         // digest.
-        hasher.update(relative.to_string_lossy().as_bytes());
+        let name = relative.to_string_lossy();
+        // Manifests are shared across hosts: Windows filesystem separators
+        // must hash identically to the forward slashes used by bundle paths.
+        #[cfg(windows)]
+        let name = name.replace('\\', "/");
+        hasher.update(name.as_bytes());
         hasher.update(&[0]);
         hasher.update(&(bytes.len() as u64).to_le_bytes());
         hasher.update(&bytes);
@@ -84,6 +89,22 @@ mod tests {
         let before = digest_dir(&dir).unwrap();
         fs::write(dir.join("kit/kit.json"), b"{ }").unwrap();
         assert_ne!(before, digest_dir(&dir).unwrap());
+    }
+
+    #[test]
+    fn nested_paths_match_the_portable_bundle_digest() {
+        let dir = scratch("portable-paths");
+        let mut expected = blake3::Hasher::new();
+        for (name, bytes) in [
+            ("kit/kit.json", b"{}".as_slice()),
+            ("page.card", b"card source".as_slice()),
+        ] {
+            expected.update(name.as_bytes());
+            expected.update(&[0]);
+            expected.update(&(bytes.len() as u64).to_le_bytes());
+            expected.update(bytes);
+        }
+        assert_eq!(digest_dir(&dir).unwrap(), expected.finalize().to_hex().to_string());
     }
 
     #[test]

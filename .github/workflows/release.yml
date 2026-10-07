@@ -72,6 +72,11 @@ on:
         required: true
         type: boolean
         default: false
+      resume_draft:
+        description: 'Resume selected platforms on an existing draft pinned to this exact commit'
+        required: false
+        type: boolean
+        default: false
       pre_release:
         description: 'Mark as a pre-release'
         required: true
@@ -194,7 +199,7 @@ jobs:
       ) }}
     runs-on: ubuntu-22.04
     outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
+      release_id: ${{ steps.existing.outputs.id || steps.create_release.outputs.id }}
       tag: ${{ steps.resolve.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
@@ -229,23 +234,30 @@ jobs:
           echo "tag=${resolved_tag}" >> "$GITHUB_OUTPUT"
           echo "name=Rinx ${resolved_tag}" >> "$GITHUB_OUTPUT"
 
-      # Safety: this workflow only ever creates a NEW release. If one already
-      # exists for the tag, bail so we never adopt, overwrite, or unpublish it.
-      - name: Refuse to reuse an existing release
+      # Resumption is explicit, draft-only and requires an exact source commit.
+      # Published releases can never be adopted or changed by this workflow.
+      - name: Resolve a new release or explicitly resume its draft
+        id: existing
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
+          RESUME_DRAFT: ${{ inputs.resume_draft }}
         run: |
+          set -euo pipefail
           TAG="${{ steps.resolve.outputs.tag }}"
           existing=$(gh api "repos/${{ github.repository }}/releases" --paginate \
-            --jq ".[] | select(.tag_name == \"$TAG\") | \"id=\(.id) draft=\(.draft)\"")
-          if [[ -n "$existing" ]]; then
-            echo "::error::A release already exists for tag '$TAG' ($existing)."
-            echo "::error::This workflow only creates new releases; it will not touch an existing one."
-            echo "::error::For testing, dispatch a throwaway release_tag. For a real re-release, delete the old one first, deliberately."
+            --jq ".[] | select(.tag_name == \"$TAG\")")
+          if [[ "$RESUME_DRAFT" == true ]]; then
+            if [[ -z "$existing" ]] || ! jq -e --arg sha "$GITHUB_SHA" \
+              '.draft == true and .target_commitish == $sha' <<< "$existing" >/dev/null; then
+              echo "::error::Resumption requires an existing draft targeting exactly $GITHUB_SHA."
+              exit 1
+            fi
+            echo "id=$(jq -r .id <<< "$existing")" >> "$GITHUB_OUTPUT"
+          elif [[ -n "$existing" ]]; then
+            echo "::error::A release already exists for '$TAG'; explicitly resume a matching draft."
             exit 1
           fi
-          echo "No existing release for '$TAG'; safe to create a fresh one."
 
       ## Fills in the release description from docs/RELEASE_NOTES_<tag>.md, so the
       ## download links can't drift from the assets we actually upload. @PKGVER@ is
@@ -273,6 +285,7 @@ jobs:
 
       - name: Create Release
         id: create_release
+        if: steps.existing.outputs.id == ''
         uses: softprops/action-gh-release@v3
         with:
           target_commitish: ${{ github.sha }}
@@ -288,7 +301,7 @@ jobs:
       - name: Verify release access
         shell: bash
         run: |
-          gh api "repos/${{ github.repository }}/releases/${{ steps.create_release.outputs.id }}" --jq '.id'
+          gh api "repos/${{ github.repository }}/releases/${{ steps.existing.outputs.id || steps.create_release.outputs.id }}" --jq '.id'
         env:
           GH_TOKEN: ${{ secrets.RINX_RELEASE || github.token }}
 
