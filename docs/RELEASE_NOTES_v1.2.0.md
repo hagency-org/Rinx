@@ -21,6 +21,9 @@ themes, and guided Hagency project and agent workflows in native mini apps.
   Link-preview cards require the homeserver's URL-preview endpoint to allow
   the destination.
 - Updated Windows build and assistant-runtime staging instructions.
+- Stop background redraw loops caused by treating Metal completion signals as
+  content changes. Moments, room history, space details, mobile panels and
+  profile/link consumers now redraw when their data changes.
 
 ## Validation and limits
 
@@ -29,6 +32,12 @@ Makepad hidden-window UI checks using isolated Matrix fixtures. Native and
 portable CI passed for the merged feature PRs. These checks do not establish
 live SSO/E2EE interoperability or physical mobile acceptance for multi-account
 switching. Experimental TSP builds refuse account switching.
+
+The performance fix passed 350 library tests (two existing tests ignored) and
+native Metal checks for idle settling, scrolling, photo loading and bilingual
+typing. On an Apple M5 Max, the reproduced Moments loop fell from over 1,500
+idle paint calls per five seconds to zero. This does not establish performance
+for every live account, IME, network condition or cold startup.
 
 The native Hagency request-form regression passed on narrow and desktop
 layouts. Its visual score remains below the existing 9.5 all-screen target.
