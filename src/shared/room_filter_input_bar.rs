@@ -40,9 +40,12 @@ script_mod! {
 
         input := RobrixTextInput {
             width: Fill,
-            height: Fit,
+            height: Fill,
             flow: Flow.Right { wrap: false },
-            padding: 5
+            // TextInput centres a single line itself. A second turtle
+            // alignment in this short field shifts the line into the clip.
+            align: Align{x: 0.0, y: 0.0}
+            padding: Inset{left: 5, right: 5}
             
             empty_text: #(crate::i18n::tr("Filter rooms & spaces...")) i18n_empty_text: "Filter rooms & spaces..."
             autocapitalize: None,
