@@ -615,10 +615,13 @@ jobs:
       - name: Build Android APK with the pinned tool
         env:
           AWS_LC_SYS_CMAKE_BUILDER: 1
+          CARGO_BUILD_JOBS: 2
         run: |
+          # The hosted runner lost contact during the full-LTO 1.2 build.
+          # Keep Cargo's normal optimized release profile
+          # and bound concurrent compiler processes for this large application.
           cargo makepad android --abi=aarch64 --package-name=org.octosense.rinx --app-label=Rinx \
-            build -p rinx --release --locked \
-            --config profile.release.lto=true --config profile.release.codegen-units=1
+            build -p rinx --release --locked
           python3 packaging/collect-android-apk.py
 
       - name: Upload Android APK
