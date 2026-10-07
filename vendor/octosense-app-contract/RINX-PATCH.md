@@ -32,3 +32,8 @@ it cannot create a replacement approval.
 Native project room selection and its required host feature match App Hub
 `978a28f`. Only the selected joined room crosses the Rinx picker boundary;
 Palpo independently checks current owner authority before binding it.
+
+Windows bundle hashing now uses forward slashes for the relative file name,
+matching the existing Unix digest and manifest values. File bytes, length,
+ordering, symlink rejection and integrity enforcement remain unchanged. This
+portability correction is local to Rinx pending a shared contract release.
