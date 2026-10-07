@@ -617,8 +617,8 @@ jobs:
           AWS_LC_SYS_CMAKE_BUILDER: 1
           CARGO_BUILD_JOBS: 2
         run: |
-          # Full-program LTO with one codegen unit exhausted the hosted runner
-          # during 1.2 packaging. Keep Cargo's normal optimized release profile
+          # The hosted runner lost contact during the full-LTO 1.2 build.
+          # Keep Cargo's normal optimized release profile
           # and bound concurrent compiler processes for this large application.
           cargo makepad android --abi=aarch64 --package-name=org.octosense.rinx --app-label=Rinx \
             build -p rinx --release --locked
