@@ -65,6 +65,14 @@ script_mod! {
                 icon_walk: Walk{width: 8 height: 14}
             }
             View {width: Fill height: 1}
+            search := RobrixNeutralIconButton {
+                visible: false width: 48 height: 48 padding: 0 margin: 0
+                align: Align{x: 0.5 y: 0.5} spacing: 0
+                label_walk: Walk{width: 0 height: 0}
+                draw_bg +: {color: #x00000000 color_hover: #x00000000 color_down: #x00000000}
+                draw_icon +: {svg: ICON_SEARCH color: mod.widgets.MOBILE_INK}
+                icon_walk: Walk{width: 18 height: 18}
+            }
             right := RobrixNeutralIconButton {
                 visible: false width: 48 height: 48 padding: 14
                 draw_bg +: {color: #x00000000 color_hover: #x00000000 color_down: #x00000000}
