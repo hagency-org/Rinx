@@ -343,9 +343,9 @@ fn decode_response(status: reqwest::StatusCode, bytes: &[u8]) -> Result<Value, S
         // Backend errors are public messages, but never echo arbitrary server
         // data (which could include a proxy's request headers/credentials).
         let code = code.unwrap_or("operation_failed");
-        return Err(format!(
-            "{code}: {}. Refresh to see the current result.",
-            match status.as_u16() {
+        let message = match code {
+            "resource_not_granted" => "The selected resource does not cover this role or initial token amount. Check the project's resource grant and lower the token amount if needed",
+            _ => match status.as_u16() {
                 401 => "Your app session expired; retry to reconnect",
                 403 => "Your account is not authorized for this operation",
                 404 => "This item is unavailable to your account",
@@ -354,8 +354,14 @@ fn decode_response(status: reqwest::StatusCode, bytes: &[u8]) -> Result<Value, S
                 400 => "Review the form fields",
                 501 => "This operation is not enabled on the server",
                 _ => "Palpo could not complete this operation",
-            }
-        ));
+            },
+        };
+        let retry_hint = if status.as_u16() == 409 || status.is_server_error() {
+            " Refresh to see the current result."
+        } else {
+            ""
+        };
+        return Err(format!("{code}: {message}.{retry_hint}"));
     }
     value.map_err(|_| "Palpo returned an invalid response".into())
 }
@@ -460,6 +466,18 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.starts_with("outbound_unconfigured: This operation is not enabled"));
+    }
+    #[test]
+    fn resource_grant_error_names_resource_and_amount_without_refresh_advice() {
+        let error = decode_response(
+            reqwest::StatusCode::FORBIDDEN,
+            br#"{"code":"resource_not_granted"}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("resource grant"));
+        assert!(error.contains("token amount"));
+        assert!(!error.contains("account is not authorized"));
+        assert!(!error.contains("Refresh"));
     }
     #[test]
     fn absent_route_and_proxy_errors_have_safe_diagnostics() {

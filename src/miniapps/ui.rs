@@ -914,6 +914,12 @@ impl MiniAppsPanel {
                     self.approvals.clear();
                     self.show_approval(cx);
                 }
+                let palpo_handles_error = reply.is_some()
+                    && self.package.as_ref().and_then(Package::builtin_id)
+                        == Some(super::palpo::APP_ID);
+                if palpo_handles_error {
+                    self.notice(cx, "");
+                }
                 if let Some((heap, req)) = reply {
                     let text = result.as_ref().map(|v| v.to_string());
                     splash_host_respond(cx, heap, req, text.as_deref().map_err(|e| e.as_str()));
@@ -921,7 +927,7 @@ impl MiniAppsPanel {
                     // children. Invalidate this panel once after they have run.
                     self.reply_redraw = cx.new_next_frame();
                 }
-                if let Err(error) = result {
+                if let Err(error) = result && !palpo_handles_error {
                     self.notice(cx, &error);
                 }
             }

@@ -176,6 +176,11 @@ def launch(root, binary, endpoint, role, board=False, visible=False, action=None
             raise AssertionError("Initial Inbox request did not settle")
         return app
     except Exception:
+        try:
+            app.capture('launch-failure')
+            (app.root / 'launch-failure.json').write_text(json.dumps(app.request('/snap', all=1), indent=2))
+        except Exception:
+            pass
         app.stop()
         raise
 

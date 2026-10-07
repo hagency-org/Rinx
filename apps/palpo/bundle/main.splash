@@ -4,7 +4,7 @@ if !mod.rinx_theme.reloading() {
     mod.palpo = {room_board: false board_generation: 0 ready: false busy: false admin: false coordinator: false owner: false services: [] user: "" page: "inbox" filter: "needs_action"
         rows: [] resources: [] capability_filter: "" catalog_ticks: 0 selected: nil pending: 0 offset: 0 total: 0 notice: "Connecting with your Rinx account…" queue_notice: nil
         notification_settings: nil device_time_zone: nil quiet_enabled: false quiet_start: "22:00" quiet_end: "08:00" quiet_zone: "UTC"
-        form: {title: "" service: "" payload: {} fields: [] context: nil} has_draft: false request_count: 0
+        form: {title: "" service: "" payload: {} fields: [] context: nil} form_error: "" has_draft: false request_count: 0
         more: false manage: "" details: "" return_page: "inbox" polling: false view_generation: 0 connecting: "" connection_error: ""}
     if fs.exists("draft.json") {
         let saved = fs.read("draft.json").parse_json()
@@ -139,6 +139,8 @@ mod.widgets.PalpoBadge = RoundedView{width: Fit height: Fit flow: Right padding:
 mod.widgets.PalpoCard = RoundedView{width: Fill height: Fit flow: Down padding: 16 spacing: 8
     draw_bg +: {color: mod.widgets.RINX_FIELD border_color: mod.widgets.RINX_BORDER border_size: 0 border_radius: 8}}
 mod.widgets.PalpoActions = View{width: Fill height: Fit flow: Flow.Right{wrap: true} spacing: 8 wrap_spacing: 8}
+mod.widgets.PalpoError = RoundedView{width: Fill height: Fit flow: Down padding: 12 spacing: 6
+    draw_bg +: {color: mod.widgets.RINX_DANGER_BG border_color: mod.widgets.RINX_DANGER_FG border_size: 1 border_radius: theme.corner_radius}}
 
 fn navigation_page(){
     if P.page != "form" { return P.page }
@@ -228,8 +230,12 @@ fn call(service, args, complete){
     sync_status()
     host.request(service, args, fn(r){
         P.busy = false
-        if r.is_ok { P.notice = "" complete(r.data) }
-        else { P.notice = r.error if service == "palpo.catalog.list" { stale_catalog() } }
+        if r.is_ok { P.notice = "" P.form_error = "" complete(r.data) }
+        else {
+            if P.page == "form" && service == P.form.service { P.form_error = r.error P.notice = "" }
+            else { P.notice = r.error }
+            if service == "palpo.catalog.list" { stale_catalog() }
+        }
         draw_page()
     })
 }
@@ -419,7 +425,7 @@ fn save_notification_settings(){
     })
 }
 fn save_form(){ fs.write("draft.json", P.form.to_json()) P.has_draft = true }
-fn edit_field(i, value){ P.form.fields[i].value = value P.form.payload[P.form.fields[i].key] = value save_form() }
+fn edit_field(i, value){ P.form.fields[i].value = value P.form.payload[P.form.fields[i].key] = value P.form_error = "" save_form() }
 fn new_form(title, service, payload, fields, source_context){
     call("palpo.intent.new", {}, fn(data){
         if service == "palpo.inbox.decide" || service == "palpo.agents.control" || service == "palpo.inbox.activate" { payload.commandId = data.requestId }
@@ -435,7 +441,7 @@ fn new_form(title, service, payload, fields, source_context){
             context = {kind: "decision" data: row}
         }
         P.form = {title: title service: service payload: payload fields: fields roomName: "" context: context step: 0}
-        P.page = "form" save_form()
+        P.page = "form" P.form_error = "" save_form()
     })
 }
 fn cancel_form(){
@@ -597,10 +603,14 @@ fn submit_current(){
     if P.busy { return }
     if guided_request() && P.form.step != 1 { review_form() return }
     if P.form.service == "palpo.requests.create" {
-        P.form.payload.agentDefinition.name = P.form.fields[0].value
+        // Rebuild from the visible fields. A restored draft can retain the
+        // original defaults in payload even after its inputs were edited.
+        let name = P.form.fields[0].value
+        let requested_tokens = P.form.fields[1].value
+        let rate_per_day = P.form.fields[2].value
         // agentName is a form-only key, not a second backend identity field.
         let old = P.form.payload
-        P.form.payload = {requestId: old.requestId projectId: old.projectId resourceAllocationId: old.resourceAllocationId role: old.role requestedTokens: old.requestedTokens ratePerDay: old.ratePerDay agentDefinition: old.agentDefinition}
+        P.form.payload = {requestId: old.requestId projectId: old.projectId resourceAllocationId: old.resourceAllocationId role: old.role requestedTokens: requested_tokens ratePerDay: rate_per_day agentDefinition: {name: name resourceId: old.agentDefinition.resourceId}}
         save_form()
     }
     submit_form()
@@ -840,6 +850,10 @@ content := ScrollYView{width: Fill{max: 840.} height: Fill flow: Down spacing: 1
         if P.page == "form" {
             mod.widgets.PalpoCard{
                 mod.widgets.PalpoTitle{width: Fill text: t(P.form.title)}
+                if P.form_error != "" { mod.widgets.PalpoError{
+                    mod.widgets.PalpoText{text: t("Request not submitted") draw_text.color: mod.widgets.RINX_DANGER_FG}
+                    mod.widgets.PalpoText{text: P.form_error draw_text.color: mod.widgets.RINX_DANGER_FG}
+                } }
                 let guided = guided_request()
                 if guided {
                     mod.widgets.PalpoActions{

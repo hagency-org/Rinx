@@ -80,6 +80,8 @@ def main():
     parser.add_argument('--score-target', type=float, default=9.5)
     parser.add_argument('--report-only', action='store_true', help='Record scores without failing the command below target')
     parser.add_argument('--i18n', action='store_true', help='Exercise English/Chinese rebakes and capture Chinese screens')
+    parser.add_argument('--layout', choices=('all', 'narrow', 'desktop'), default='all',
+                        help='Run both layouts or reproduce one native layout')
     args = parser.parse_args()
     if not 0 <= args.score_target <= 10:
         parser.error('--score-target must be between 0 and 10')
@@ -251,7 +253,8 @@ def main():
             catalog_capabilities['resourceBudgetObservedAtMs'] = int(time.time()*1000) - (100000 if stale_capacity else 0)
             machine_update(endpoint, fleet, {'v': 2, 'generation': 1, 'sequence': sequence,
                 'heartbeat': True, 'statuses': observations, 'coordinatorUpdates': [], 'capabilities': catalog_capabilities})
-        for narrow in (True, False):
+        layouts = (True, False) if args.layout == 'all' else (args.layout == 'narrow',)
+        for narrow in layouts:
             refresh_runtime_fixture()
             size = 'narrow' if narrow else 'desktop'
             if args.before:
@@ -311,6 +314,31 @@ def main():
             capture(owner, size + '-agent-review')
             owner.click_id('edit_request'); owner.wait_text('Agent name'); owner.wait_text('GuidedAgent')
             assert json.loads(draft.read_text())['payload']['requestId'] == intent
+            fill(owner, 'Initial tokens', '2000001')
+            fill(owner, 'Daily rate', '1234')
+            owner.click_id('review_form'); owner.wait_text('3 · Review and send')
+            owner.click_id('submit'); owner.wait_text('Request not submitted')
+            owner.wait_text('resource_not_granted:')
+            rejected = json.loads(draft.read_text())['payload']
+            assert rejected['requestId'] == intent
+            assert rejected['agentDefinition']['name'] == 'GuidedAgent'
+            assert rejected['requestedTokens'] == '2000001' and rejected['ratePerDay'] == '1234'
+            assert 'agentName' not in rejected
+            capture(owner, size + '-agent-form-error')
+            if args.i18n:
+                saved = draft.read_bytes()
+                owner.request('/event', data='palpo:zh-CN', wait=1)
+                owner.wait_text('申请未提交'); owner.wait_text('resource_not_granted:')
+                assert draft.read_bytes() == saved
+                capture(owner, size + '-zh-agent-form-error')
+                owner.request('/event', data='palpo:en', wait=1)
+                owner.wait_text('Request not submitted')
+            owner.click_id('edit_request'); owner.wait_text('Agent name')
+            fill(owner, 'Initial tokens', '40000')
+            owner.click_id('review_form'); owner.wait_text('3 · Review and send')
+            assert not any(w.get('t') == 'Request not submitted' for w in owner.snap())
+            assert json.loads(draft.read_text())['payload']['requestId'] == intent
+            report['checks'].append(size + ': rejected agent form retains edited values and request identity, shows inline error, and clears it after correction')
             owner.click_id('cancel'); owner.wait_text('Use for Coding')
             report['checks'].append(size + ': cancelling an agent request preserves the selected project and resource catalog')
             # The preceding screenshots can outlive the 90-second capacity
