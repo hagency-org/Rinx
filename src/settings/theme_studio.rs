@@ -63,9 +63,9 @@ script_mod! {
             }
             basic_preview := RinxButton {text: #(crate::i18n::tr("Preview changes")) i18n_text: "Preview changes"}
             RinxHint {width: Fill text: #(crate::i18n::tr("Preview changes the open app temporarily. Apply keeps it; Cancel restores your previous appearance.")) i18n_text: "Preview changes the open app temporarily. Apply keeps it; Cancel restores your previous appearance."}
-            preview_gallery := RoundedView {width: Fill height: Fit padding: 14 flow: Down spacing: 10 draw_bg +: {color: RINX_SURFACE border_radius: theme.corner_radius}
+            preview_gallery := RoundedView {width: Fill height: Fit padding: 14 flow: Down spacing: 10 draw_bg +: {color: RINX_SURFACE border_radius: RINX_RADIUS_MD}
                 RinxLabel {text: #(crate::i18n::tr("Chat, mini app, form and reader")) i18n_text: "Chat, mini app, form and reader"}
-                RoundedView {width: Fill height: Fit padding: 10 draw_bg +: {color: RINX_OUTGOING border_radius: theme.corner_radius}
+                RoundedView {width: Fill height: Fit padding: 10 draw_bg +: {color: RINX_OUTGOING border_radius: RINX_RADIUS_SM}
                     RinxLabel {width: Fill text: #(crate::i18n::tr("A message with readable text and balanced margins.")) i18n_text: "A message with readable text and balanced margins."}
                 }
                 View {width: Fill height: Fit flow: Flow.Right{wrap: true} spacing: 8
@@ -81,7 +81,7 @@ script_mod! {
             }
             share_section := View {width: Fill height: Fit flow: Down spacing: 8
                 RinxHint {width: Fill text: #(crate::i18n::tr("Share a theme file in a conversation. Recipients choose whether to apply it.")) i18n_text: "Share a theme file in a conversation. Recipients choose whether to apply it."}
-                share_rooms := DropDown {width: Fill height: RINX_CONTROL_HEIGHT labels: [#(crate::i18n::tr("Choose a conversation"))]}
+                share_rooms := mod.widgets.RinxDropDown {width: Fill height: RINX_CONTROL_HEIGHT labels: [#(crate::i18n::tr("Choose a conversation"))]}
                 theme_share := RinxButton {text: #(crate::i18n::tr("Send theme file")) i18n_text: "Send theme file"}
             }
         }

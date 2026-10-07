@@ -137,7 +137,7 @@ script_mod! {
                 color: mod.widgets.RINX_SURFACE
                 border_color: mod.widgets.RINX_BORDER
                 border_size: 1.0
-                border_radius: 8.0
+                border_radius: mod.widgets.RINX_RADIUS_SM
             }
             summary := View {
                 width: Fill height: Fit flow: Right spacing: 12

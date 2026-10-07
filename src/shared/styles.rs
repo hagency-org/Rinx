@@ -227,9 +227,9 @@ script_mod! {
     mod.widgets.SPACE_XXL = 24 * mod.widgets.RINX_SPACING
 
     // Border radius constants
-    mod.widgets.RADIUS_SM = theme.corner_radius * 0.67
-    mod.widgets.RADIUS_MD = theme.corner_radius * 1
-    mod.widgets.RADIUS_LG = theme.corner_radius * 1.33
+    mod.widgets.RADIUS_SM = mod.widgets.RINX_RADIUS_SM
+    mod.widgets.RADIUS_MD = mod.widgets.RINX_RADIUS_MD
+    mod.widgets.RADIUS_LG = mod.widgets.RINX_RADIUS_LG
 
     // Settings screen colors
     mod.widgets.COLOR_DROPDOWN_TEXT = mod.widgets.RINX_INK
@@ -261,7 +261,7 @@ script_mod! {
 
 
     // A text input widget styled for Rinx.
-    mod.widgets.RobrixTextInput = TextInput {
+    mod.widgets.RobrixTextInput = mod.widgets.RinxTextInput {
         width: Fill, height: Fit
         flow: Flow.Right{wrap: true},
         align: Align{y: 0.5}
@@ -278,7 +278,7 @@ script_mod! {
         }
 
         draw_bg +: {
-            border_radius: 4.0 // was previously 2.0
+            border_radius: mod.widgets.RINX_RADIUS_XS
             border_size: 1.0
 
             color: (mod.widgets.COLOR_PRIMARY)

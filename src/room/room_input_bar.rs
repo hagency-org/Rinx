@@ -160,8 +160,7 @@ script_mod! {
                 draw_bg +: {
                     color: (RBX_BG_SURFACE)
                     border_radius: (RBX_RADIUS_XS)
-                    border_color: (RBX_STROKE_SOFT)
-                    border_size: 1.0
+                    border_size: 0.0
                 }
 
                 button_row := View {
@@ -380,7 +379,7 @@ script_mod! {
                             draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: (12.5 * mod.widgets.RINX_TEXT_SCALE)}}
                             draw_bg +: {
                                 color: mod.widgets.RINX_SURFACE color_hover: mod.widgets.RINX_SURFACE color_focus: mod.widgets.RINX_SURFACE
-                                color_empty: mod.widgets.RINX_SURFACE border_radius: 5
+                                color_empty: mod.widgets.RINX_SURFACE border_radius: mod.widgets.RINX_RADIUS_XS
                             }
                         }
                     }

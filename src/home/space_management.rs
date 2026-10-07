@@ -349,7 +349,7 @@ script_mod! {
     use mod.widgets.*
     let Text = Label {width: Fill height: Fit flow: Flow.Right{wrap: true} draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular{font_size: (11 * mod.widgets.RINX_TEXT_SCALE)}}}
     let Action = RobrixNeutralIconButton {height: 40 icon_walk: Walk{width: 0 height: 0} spacing: 0}
-    let Input = TextInput {width: Fill height: 40}
+    let Input = mod.widgets.RinxTextInput {width: Fill height: 40}
     mod.widgets.SpaceManagementPanel = #(SpaceManagementPanel::register_widget(vm)) {
         ..mod.widgets.SolidView
         width: Fill height: Fill flow: Down padding: Inset{top: 32 left: 16 right: 16 bottom: 12} spacing: 8
@@ -365,9 +365,9 @@ script_mod! {
             manage_tab := Action {width: Fill text: #(crate::i18n::tr("Manage space")) i18n_text: "Manage space"}
         }
         Text {text: #(crate::i18n::tr("Parent space")) i18n_text: "Parent space"}
-        parent := DropDown {width: Fill labels: ["No parent space"]}
+        parent := mod.widgets.RinxDropDown {width: Fill labels: ["No parent space"]}
         create_form := ScrollYView {width: Fill height: Fill flow: Down spacing: 8
-            kind := DropDown {width: Fill labels: [#(crate::i18n::tr("Room")) #(crate::i18n::tr("Space"))] i18n_labels: ["Room" "Space"]}
+            kind := mod.widgets.RinxDropDown {width: Fill labels: [#(crate::i18n::tr("Room")) #(crate::i18n::tr("Space"))] i18n_labels: ["Room" "Space"]}
             name := Input {empty_text: #(crate::i18n::tr("Name")) i18n_empty_text: "Name"}
             topic := Input {empty_text: #(crate::i18n::tr("Topic")) i18n_empty_text: "Topic"}
             public := CheckBox {text: #(crate::i18n::tr("Public")) i18n_text: "Public"}

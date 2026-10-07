@@ -422,6 +422,13 @@ pub fn script_mod(vm: &mut ScriptVm) {
         mod.widgets.RINX_READING_WIDTH = #(s.reading_width)
         mod.widgets.RINX_GUTTER = #(s.page_gutter)
         mod.widgets.RINX_MOTION = #(s.motion_ms / 1000.)
+        // Content boxes must keep their corners inside the text padding, even
+        // when an Android or imported theme uses large surface radii.
+        mod.widgets.RINX_RADIUS_XS = #(s.radius.clamp(0., 3.))
+        mod.widgets.RINX_RADIUS_SM = #(s.radius.clamp(0., 4.))
+        mod.widgets.RINX_RADIUS_MD = #(s.radius.clamp(0., 6.))
+        mod.widgets.RINX_RADIUS_LG = #(s.radius.clamp(0., 8.))
+        mod.widgets.RINX_RADIUS_XL = #(s.radius.clamp(0., 10.))
     });
     controls::script_mod(vm);
 }
@@ -448,6 +455,15 @@ mod controls {
         mod.widgets.TextInput = mod.widgets.TextInput {
             draw_selection +: {draw_call_group: @selection}
         }
+        mod.widgets.RinxTextInput = mod.widgets.TextInput {
+            draw_bg.border_radius: RINX_RADIUS_XS
+        }
+        mod.widgets.RinxDropDown = DropDown {
+            draw_bg.border_radius: RINX_RADIUS_SM
+        }
+        mod.widgets.RinxFlatButton = ButtonFlat {
+            draw_bg.border_radius: RINX_RADIUS_SM
+        }
         mod.widgets.RinxLabel = Label {draw_text +: {color: RINX_INK text_style: theme.font_regular{font_size: RINX_BODY_SIZE}}}
         mod.widgets.RinxPageTitle = mod.widgets.RinxLabel {draw_text.text_style: theme.font_bold{font_size: RINX_TITLE_SIZE}}
         mod.widgets.RinxHint = mod.widgets.RinxLabel {draw_text +: {color: RINX_MUTED text_style.font_size: RINX_META_SIZE}}
@@ -460,7 +476,7 @@ mod controls {
                 color: RINX_SURFACE color_focus: RINX_SURFACE color_hover: RINX_HOVER color_down: RINX_PRESSED
                 color_2: vec4(-1., -1., -1., -1.)
                 border_color: RINX_BORDER border_color_hover: RINX_BORDER border_color_down: RINX_BORDER
-                border_color_focus: RINX_ACCENT border_size: 1 border_radius: theme.corner_radius
+                border_color_focus: RINX_ACCENT border_size: 1 border_radius: RINX_RADIUS_SM
             }
             draw_text +: {color: RINX_INK color_hover: RINX_INK color_down: RINX_INK color_focus: RINX_INK text_style: theme.font_regular{font_size: RINX_BODY_SIZE}}
             draw_icon +: {color: RINX_INK}
@@ -471,10 +487,10 @@ mod controls {
             draw_text +: {color: RINX_ON_ACCENT color_hover: RINX_ON_ACCENT color_down: RINX_ON_ACCENT color_focus: RINX_ON_ACCENT}
             draw_icon +: {color: RINX_ON_ACCENT}
         }
-        mod.widgets.RinxInput = TextInput {
+        mod.widgets.RinxInput = mod.widgets.RinxTextInput {
             height: RINX_CONTROL_HEIGHT padding: Inset{left: 12 * RINX_SPACING right: 12 * RINX_SPACING top: 10 bottom: 10}
             draw_bg +: {color: RINX_FIELD color_hover: RINX_FIELD color_focus: RINX_FIELD color_empty: RINX_FIELD
-                border_color: RINX_BORDER border_color_focus: RINX_ACCENT border_radius: theme.corner_radius}
+                border_color: RINX_BORDER border_color_focus: RINX_ACCENT}
             draw_text +: {color: RINX_INK color_hover: RINX_INK color_focus: RINX_INK text_style: theme.font_regular{font_size: RINX_BODY_SIZE}}
             draw_cursor.color: RINX_ACCENT
         }
