@@ -127,6 +127,9 @@ def main():
             app.click(x + width / 2, y + height / 2)
             results.append(app.measure('chat-typing', app.type_sentence))
             time.sleep(2)
+            results.append(app.measure('chat-caret', lambda: time.sleep(5)))
+            app.click_id('header')
+            time.sleep(1)
             results.append(app.measure('chat-rest', lambda: time.sleep(5)))
         else:
             def scroll():
@@ -146,8 +149,8 @@ def main():
     if args.assert_idle:
         for result in results:
             if result['name'].endswith(('idle', 'rest')):
-                # A focused composer legitimately animates its caret. Count
-                # widget redraws separately from compositor animation presents.
+                # The focused composer's animated caret is measured separately;
+                # idle samples must settle both widget draws and GPU repaints.
                 draws = result['events'].get('event.draw', {}).get('count', 0)
                 assert draws < 30, f"Redraw loop: {result['name']} performed {draws} widget draws"
                 assert result['frames_painted'] < 30, f"Repaint loop: {result['name']} submitted {result['frames_painted']} frames"
