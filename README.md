@@ -6,7 +6,17 @@ A native Matrix messenger from [Upstream Labs](https://github.com/upstreamlabs),
 
 Rinx is an independent continuation of [`OctoSense-org/robrix2`'s `wechat-ui` branch](https://github.com/OctoSense-org/robrix2/tree/wechat-ui), starting at `16913e0c6f0397b4ed1272b7dcd421935521d5f3`. That branch's commit history is preserved here. Development now lives on this repository's **`main`** branch.
 
-## Homeserver history
+## Choosing a server and registering
+
+The native desktop and mobile sign-in screen offers **matrix.org**, **tchncs.de**, and **mozilla.org**, alongside a custom server address. Select a server, then Continue. Rinx discovers its actual backend and current authentication capabilities before presenting registration options; the catalog does not hardcode API hosts or contact every listed server.
+
+Servers advertising browser registration (currently matrix.org and tchncs.de) open their own SSO registration flow and return to Rinx after completion. Mozilla community onboarding opens its [official website](https://chat.mozilla.org); return to Rinx and use single sign-on afterward. Legacy servers use their own Matrix `/_matrix/client/v3/register` endpoint; native registration supports dummy and invitation-token authentication. Servers decide whether registration is open. Other legacy verification stages, such as email or CAPTCHA, are not yet supported in the native form. OAuth `registration_endpoint` metadata describes client registration and is never used to submit a user's password.
+
+Switching servers clears registration details and invalidates any older discovery result. Credentials go only to the selected server's discovered backend. Public suggestions are separate from device-local history.
+
+For native UI validation on macOS, run `tools/wechat-ux/live/native_server_catalog.py --binary target/debug/rinx --output <new-output-directory>` with Python 3 and Swift available. Add `--live-public` to check all three public servers' current discovery and registration actions; the test never submits public account credentials. It uses isolated profiles and captures both desktop and phone-width layouts. See [desktop](docs/screenshots/registration-server-desktop.png), [phone width](docs/screenshots/registration-server-phone.png), and [validation evidence](docs/screenshots/registration-server-validation.json).
+
+### Homeserver history
 
 The sign-in server field shows recent homeservers when clicked or focused. Typing filters the list; choosing an entry fills the field, and Continue checks it again. Successful Matrix discovery records up to 20 deduplicated destinations, most recent first, in device-local `homeserver_history.json`. Existing saved login sessions seed the list on upgrade. The file contains server addresses only and retains history across restarts, even if login fails after server discovery.
 

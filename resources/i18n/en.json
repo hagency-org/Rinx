@@ -1553,5 +1553,18 @@
   "Choose what this agent will do": "Choose what this agent will do",
   "Use for ": "Use for ",
   "This allocation is overcommitted.": "This allocation is overcommitted.",
-  "Run": "Run"
+  "Run": "Run",
+  "Choose a public server or enter your own.": "Choose a public server or enter your own.",
+  "Matrix.org Foundation": "Matrix.org Foundation",
+  "Independent community server": "Independent community server",
+  "Mozilla community · single sign-on": "Mozilla community · single sign-on",
+  "Server address": "Server address",
+  "Registration options are checked with the selected server.": "Registration options are checked with the selected server.",
+  "Create account in browser": "Create account in browser",
+  "Registration and any email or captcha checks happen on your server's website. Rinx signs you in when finished.": "Registration and any email or captcha checks happen on your server's website. Rinx signs you in when finished.",
+  "Registration availability and any invitation token are managed by this server.": "Registration availability and any invitation token are managed by this server.",
+  "Join on the server website": "Join on the server website",
+  "Create your community account on the official website, then return here and continue with single sign-on.": "Create your community account on the official website, then return here and continue with single sign-on.",
+  "This server has not advertised an account creation method. Contact its administrator if you need an account.": "This server has not advertised an account creation method. Contact its administrator if you need an account.",
+  "The server's registration method changed. Check the server again.": "The server's registration method changed. Check the server again."
 }

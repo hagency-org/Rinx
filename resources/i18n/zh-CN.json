@@ -1553,5 +1553,18 @@
   "Choose what this agent will do": "选择该智能体要执行的工作",
   "Use for ": "用于",
   "This allocation is overcommitted.": "此分配额度已超额承诺。",
-  "Run": "运行"
+  "Run": "运行",
+  "Choose a public server or enter your own.": "选择公共服务器，或输入自己的服务器地址。",
+  "Matrix.org Foundation": "Matrix.org 基金会",
+  "Independent community server": "独立社区服务器",
+  "Mozilla community · single sign-on": "Mozilla 社区 · 单点登录",
+  "Server address": "服务器地址",
+  "Registration options are checked with the selected server.": "继续后，将检查所选服务器支持的注册方式。",
+  "Create account in browser": "在浏览器中注册",
+  "Registration and any email or captcha checks happen on your server's website. Rinx signs you in when finished.": "注册、邮箱验证和验证码将在服务器网站上完成，完成后 Rinx 将自动登录。",
+  "Registration availability and any invitation token are managed by this server.": "是否开放注册、是否需要邀请码，由此服务器决定。",
+  "Join on the server website": "前往服务器网站注册",
+  "Create your community account on the official website, then return here and continue with single sign-on.": "在官方网站创建社区账户后，返回此处继续单点登录。",
+  "This server has not advertised an account creation method. Contact its administrator if you need an account.": "此服务器未提供注册入口。如需账户，请联系服务器管理员。",
+  "The server's registration method changed. Check the server again.": "服务器的注册方式已变更，请重新检查服务器。"
 }

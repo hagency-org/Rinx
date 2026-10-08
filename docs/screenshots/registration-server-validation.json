@@ -1,0 +1,53 @@
+{
+  "validated_on": "2026-10-07",
+  "platform": "macOS native Makepad; desktop 1000x820 and phone-width 390x844",
+  "binary_sha256": "ac9f42b02a06e44fe7dd08e841b2367d0d64f1a91e5e19bc8e4761819464aec8",
+  "unit_tests": {
+    "command": "cargo test --locked --lib login::",
+    "passed": 18,
+    "failed": 0
+  },
+  "translations": {
+    "command": "python3 tools/wechat-ux/check_i18n.py",
+    "missing": 0
+  },
+  "native_catalog": {
+    "passed": true,
+    "checks": [
+      "desktop: all choices and Continue fit; selecting fills the address without adding unverified history",
+      "desktop: custom native registration, return to sign-in, and clearing details on server switch",
+      "desktop: browser and unavailable registration follow live capabilities, not password compatibility",
+      "desktop: selecting another server invalidates a pending discovery response",
+      "public servers: live SDK discovery reaches all three selected services and offers the expected action; no account submissions",
+      "phone: all choices and Continue fit; selecting fills the address without adding unverified history",
+      "phone: custom native registration, return to sign-in, and clearing details on server switch",
+      "phone: browser and unavailable registration follow live capabilities, not password compatibility",
+      "phone: selecting another server invalidates a pending discovery response"
+    ],
+    "live_discovery_seconds": {
+      "matrix.org": 0.99,
+      "tchncs.de": 2.41,
+      "mozilla.org": 1.14
+    }
+  },
+  "native_history": {
+    "passed": true,
+    "checks": [
+      "successful Matrix discovery persists a valid server",
+      "Continue works while history is expanded and avoids duplicates",
+      "focus shows recent-first destinations and empty input shows all",
+      "failed Matrix discovery does not enter history",
+      "typing filters; selection only fills; Continue rechecks and updates recency",
+      "Escape/outside click dismiss; repeat input click reopens",
+      "restart retains history without login credentials",
+      "history fits narrow phone layout",
+      "filtering a scrolled long list returns to the first matching result"
+    ]
+  },
+  "limitations": [
+    "Phone-width captures use the native macOS renderer, not a physical Android or iOS device.",
+    "Public server checks stop at discovery and registration action selection. No real accounts are created. Browser callback and native credential submissions are tested against local Matrix fixtures.",
+    "Legacy email and CAPTCHA verification steps remain unsupported in the native form.",
+    "Palpo account-request approval and shared pending-action room integration are not part of this change."
+  ]
+}
