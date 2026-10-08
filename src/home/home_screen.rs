@@ -5,7 +5,6 @@ use crate::{
     app::{AppState, AppStateAction, SelectedRoom},
     home::{
         mobile_chat_info::MobileChatInfoWidgetRefExt,
-        rooms_list_header::RoomsListHeaderAction,
         invite_screen::InviteScreenWidgetRefExt,
         navigation_tab_bar::{NavigationBarAction, SelectedTab},
         room_screen::RoomScreenWidgetRefExt,
@@ -18,7 +17,6 @@ use crate::{
         settings_screen::SettingsScreenWidgetRefExt,
     },
     profile::user_profile::UserProfileSlidingPaneWidgetRefExt,
-    shared::room_filter_input_bar::{MainFilterAction, RoomFilterInputBarWidgetExt},
     shared::mention_popup::MentionablePopupRef,
     utils::RoomNameId,
 };
@@ -178,29 +176,6 @@ script_mod! {
                     home_page := View {
                         width: Fill, height: Fill
                         flow: Down
-
-                        View {
-                            width: Fill,
-                            height: 39,
-                            flow: Right
-                            padding: Inset{top: 2, bottom: 2}
-                            // The negative left/right margins compensate for the gray border,
-                            // such that the inner white input part is aligned with other elements.
-                            margin: Inset{left: -1.5, right: -1.5}
-                            spacing: 2
-                            align: Align{y: 0.5}
-
-                            CachedWidget {
-                                room_filter_input_bar := RoomFilterInputBar {}
-                            }
-
-                            // Hide this until it's implemented.
-                            // search_messages_button := SearchMessagesButton {
-                            //     // make this button match/align with the RoomFilterInputBar
-                            //     height: 32.5,
-                            //     margin: Inset{right: 2}
-                            // }
-                        }
 
                         mod.widgets.MainDesktopUI {}
                     }
@@ -490,21 +465,6 @@ impl Widget for HomeScreen {
             }
         }
         if let Event::Actions(actions) = event {
-            // On desktop, the RoomFilterInputBar is inside this HomeScreen.
-            // Check if it changed and re-emit as a MainFilterAction so that
-            // RoomsList and SpacesBar can respond without cross-talk from
-            // other RoomFilterInputBar instances (e.g., SpaceLobbyScreen's).
-            if let Some(keywords) = self.view.room_filter_input_bar(cx, ids!(room_filter_input_bar)).changed(actions) {
-                cx.action(MainFilterAction::Changed(keywords));
-            }
-            // The rooms-list header's search icon: on desktop the filter bar lives here.
-            if actions.iter().any(|a| matches!(a.downcast_ref(), Some(RoomsListHeaderAction::OpenRoomFilterModal))) {
-                let input = self.view.text_input(cx, ids!(room_filter_input_bar.input));
-                if !input.is_empty() {
-                    input.set_key_focus(cx);
-                }
-            }
-
             let app_state = scope.data.get_mut::<AppState>().unwrap();
             if !effective_is_desktop(cx) {
                 let stack = self.view.stack_navigation(cx, ids!(view_stack));

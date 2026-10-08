@@ -4,8 +4,7 @@
 //! * On a narrow mobile view, it acts as the root_view of StackNavigation
 //!   * It includes a title label, a search bar, and the RoomsList.
 //! * On a wide desktop view, it acts as a permanent tab that is on the left side of the dock.
-//!   * It only includes a title label and the RoomsList, because the SearcBar
-//!     is at the top of the HomeScreen in Desktop view, and spaces are listed
+//!   * It includes a title label, a search bar and the RoomsList. Spaces are listed
 //!     in the navigation rail rather than behind an "All Chats | Spaces" switch.
 
 use makepad_widgets::*;
@@ -15,7 +14,6 @@ use crate::home::rooms_list_header::RoomsListHeaderAction;
 use crate::home::joined_spaces::JoinedSpacesWidgetExt;
 use crate::home::navigation_tab_bar::{NavigationBarAction, SelectedTab};
 use crate::shared::navigation_bar_button::NavigationBarButtonWidgetExt;
-use crate::settings::app_preferences::{AppPreferencesGlobal, AppPreferencesAction, ViewModeOverride};
 use crate::shared::room_filter_input_bar::{MainFilterAction, RoomFilterInputBarWidgetExt};
 
 script_mod! {
@@ -52,6 +50,7 @@ script_mod! {
             CachedWidget {
                 rooms_list_header := RoomsListHeader {}
             }
+            room_filter_input_bar := RoomFilterInputBar {}
             // No "All Chats | Spaces" switch here: on desktop, spaces live in the
             // navigation rail on the left, and selecting one filters this list.
             file_transfer_entry := MobileRow {height: 46 title.text: #(crate::i18n::tr("File Transfer")) title.i18n_text: "File Transfer" icon.draw_icon.svg: ICON_FILE}
@@ -105,14 +104,10 @@ struct ChatsViewState { spaces: bool }
 /// * In the mobile view, it serves as the root view of the StackNavigation,
 ///   showing the title label, the search bar, and the RoomsList.
 /// * In the desktop view, it is a permanent tab in the dock,
-///   showing only the title label and the RoomsList
-///   (because the search bar is at the top of the HomeScreen).
+///   showing the title label, the search bar and the RoomsList.
 #[derive(Script, Widget)]
 pub struct RoomsSideBar {
     #[deref] view: AdaptiveView,
-
-    /// The most recently applied view-mode override.
-    #[rust] applied_view_mode: ViewModeOverride,
 
     #[rust] mobile_search_collapsed: bool,
     #[rust] pending_search_focus: bool,
@@ -125,22 +120,21 @@ impl ScriptHook for RoomsSideBar {
             // which is used to access the list of rooms from anywhere in the app.
             cx.set_global(self.view.rooms_list(cx, ids!(rooms_list)));
 
-            // The RoomsSideBar is re-instantiated every time the HomeScreen's
-            // AdaptiveView switches between Desktop and Mobile view modes
-            // (cuz it's not wrapped in a CachedWidget).
-            // Thus we just re-read the current value here and apply it.
-            let mode = cx.global::<AppPreferencesGlobal>().0.view_mode;
-            self.apply_view_mode(mode);
+            // Follow the enclosing HomeScreen, including its view-mode override.
+            // The desktop dock pane is narrow even in a wide window; selecting
+            // by this pane's width would incorrectly put mobile UI inside it.
+            self.view.set_variant_selector(|cx, _| {
+                if crate::home::home_screen::effective_is_desktop(cx) {
+                    live_id!(Desktop)
+                } else {
+                    live_id!(Mobile)
+                }
+            });
         });
     }
 }
 
 impl RoomsSideBar {
-    fn apply_view_mode(&mut self, mode: ViewModeOverride) {
-        self.view.set_variant_selector(mode.variant_selector());
-        self.applied_view_mode = mode;
-    }
-
     fn active_mobile_list(&self, cx: &mut Cx) -> PortalListRef {
         if cx.global::<ChatsViewState>().spaces {
             self.view.portal_list(cx, ids!(joined_spaces.list))
@@ -221,15 +215,12 @@ impl Widget for RoomsSideBar {
                 if let Some(NavigationBarAction::TabSelected(SelectedTab::Space {..})) = action.downcast_ref() {
                     cx.global::<ChatsViewState>().spaces = false;
                 }
-                // The header's search icon: on mobile the filter bar lives right
-                // here, so focus it. (Desktop hosts the bar in the HomeScreen.)
+                // Both layouts own their search field in this sidebar.
                 if let Some(RoomsListHeaderAction::OpenRoomFilterModal) = action.downcast_ref() {
-                    self.open_mobile_search(cx);
-                }
-                if let Some(AppPreferencesAction::ViewModeChanged(new_mode)) = action.downcast_ref() {
-                    if *new_mode != self.applied_view_mode {
-                        self.apply_view_mode(*new_mode);
-                        self.view.redraw(cx);
+                    if crate::home::home_screen::effective_is_desktop(cx) {
+                        self.view.text_input(cx, ids!(room_filter_input_bar.input)).take_key_focus(cx);
+                    } else {
+                        self.open_mobile_search(cx);
                     }
                 }
             }

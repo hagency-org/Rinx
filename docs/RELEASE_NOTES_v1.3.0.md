@@ -22,6 +22,9 @@ text-field shapes.
   field while keeping the query. Chats and Spaces use their own list position.
 - Reduce excessive box rounding, keep text inside its input area, and remove
   the outer chat border.
+- Keep desktop search inside the conversation sidebar, with padding on both
+  sides and a width that follows the resizable pane. The sidebar follows the
+  main desktop/mobile layout, avoiding duplicate search fields on desktop.
 
 ## Validation and known limits
 
