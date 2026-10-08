@@ -175,6 +175,28 @@ fn inspect(cx: &mut Cx, path: &PathBuf) {
     if let Err(error) = std::fs::write(path.with_extension("shaders.json"), serde_json::to_vec_pretty(&shaders).unwrap()) {
         error!("Could not write instrument shader map: {error}");
     }
+    let mut draws = Vec::new();
+    for id in cx.draw_lists.id_iter() {
+        let list = &cx.draw_lists[id];
+        for order in 0..list.draw_item_order_len() {
+            let Some(item_id) = list.draw_item_id_at_order_index(order) else { continue };
+            let item = &list.draw_items[item_id];
+            let Some(call) = item.kind.draw_call() else { continue };
+            let shader = &cx.draw_shaders.shaders[call.draw_shader_id.index];
+            let Some(program) = shader.os_shader_id.and_then(|i| cx.draw_shaders.os_shaders.get(i)) else { continue };
+            if !program.in_pixel.contains("return vec4(0.0, 0.0, 0.0, 0.0);") { continue; }
+            let Some(instances) = &item.instances else { continue };
+            let slots = shader.mapping.instances.total_slots;
+            if slots == 0 { continue; }
+            let geometry: Vec<_> = instances.chunks_exact(slots).map(|instance| {
+                shader.mapping.instances.inputs.iter().filter(|input| {
+                    matches!(input.id, live_id!(rect_pos) | live_id!(rect_size) | live_id!(draw_clip))
+                }).map(|input| (input.id.to_string(), instance[input.offset..input.offset+input.slots].to_vec())).collect::<BTreeMap<_,_>>()
+            }).collect();
+            draws.push(json!({"list": format!("{:?}", id), "debug_id": list.debug_id.to_string(), "shader": call.draw_shader_id.index, "geometry": geometry}));
+        }
+    }
+    let _ = std::fs::write(path.with_extension("transparent.json"), serde_json::to_vec_pretty(&draws).unwrap());
     let widgets = cx.widget_snapshot_callback.map(|snapshot| snapshot(cx)).unwrap_or_default();
     let visible: Vec<_> = widgets.iter().filter(|w| w.visible).collect();
     let report = json!({
