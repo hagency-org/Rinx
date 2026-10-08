@@ -2,7 +2,8 @@
 """Measure an isolated optimized Rinx with Makepad's native timing monitor.
 
 The window is visible but unfocused: hidden macOS windows are throttled and
-cannot provide representative frame pacing. Uses only a loopback Matrix fixture.
+cannot provide representative frame pacing. App mode uses a loopback Matrix
+fixture; chat mode takes the offline production-widget `chat_theme` example.
 """
 import argparse
 import hashlib
@@ -120,8 +121,11 @@ def main():
             time.sleep(2)
             results.append(app.measure('account-menu-idle', lambda: time.sleep(5)))
         elif args.mode == 'chat':
-            (app.root / 'chat-widgets.json').write_text(json.dumps(app.snap(), indent=2))
-            inputs = [w for w in app.snap() if w['ty'] in ('TextInput', 'MessageTextInput')]
+            widgets = app.snap()
+            (app.root / 'chat-widgets.json').write_text(json.dumps(widgets, indent=2))
+            assert any(w['ty'] in ('RoomInputBar', 'MobileRoomInputBar') for w in widgets), \
+                'Chat mode requires an open composer; use --binary target/release/examples/chat_theme'
+            inputs = [w for w in widgets if w['i'] == 'text_input' and w['ty'] in ('TextInput', 'MessageTextInput')]
             assert inputs, 'No visible chat composer'
             x, y, width, height = inputs[-1]['r']
             app.click(x + width / 2, y + height / 2)
