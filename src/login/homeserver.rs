@@ -86,6 +86,7 @@ pub struct LoginMethods {
     pub sso: bool,
     pub oauth_aware_preferred: bool,
     pub browser_registration: bool,
+    pub email_otp: bool,
     pub providers: Vec<LoginProvider>,
 }
 
@@ -124,6 +125,7 @@ pub async fn login_methods(client: &Client) -> Result<LoginMethods> {
         sso: false,
         oauth_aware_preferred: false,
         browser_registration: false,
+        email_otp: false,
         providers: Vec::new(),
     };
     for flow in response.flows {
@@ -145,6 +147,8 @@ pub async fn login_methods(client: &Client) -> Result<LoginMethods> {
     if methods.sso {
         methods.browser_registration = browser_registration_supported(client).await;
     }
+    methods.email_otp = client.unstable_features().await?
+        .contains(&"org.palpo.registration.email_otp".into());
     Ok(methods)
 }
 
@@ -202,50 +206,65 @@ async fn discover_with_timeout(
     .map_err(|_| anyhow::anyhow!("The server check timed out. Check your connection and try again."))?
 }
 
-/// Complete a legacy registration when the homeserver offers a simple UIAA
-/// dummy or registration-token stage. Other stages need their own client UI.
-pub async fn register_account(client: &Client, username: String, password: String, token: String) -> Result<()> {
+/// Complete supported UIAA stages, preserving the session and completed stages.
+pub async fn register_account(client: &Client, username: String, password: String, token: String, email: Option<super::email_verification::EmailProof>) -> Result<()> {
     use matrix_sdk::ruma::api::client::{account::register::v3::Request, uiaa::{AuthData, AuthType, Dummy, RegistrationToken}};
-
-    // Recheck before sending credentials: a server may have migrated to MAS
-    // since the user opened the native registration form.
-    if login_methods(client).await?.registration_route(client.homeserver().as_str()) != RegistrationRoute::Native {
+    let methods = login_methods(client).await?;
+    if methods.registration_route(client.homeserver().as_str()) != RegistrationRoute::Native {
+        bail!("{}", crate::i18n::tr("The server's registration method changed. Check the server again."));
+    }
+    if methods.email_otp && email.is_none() { bail!("{}", crate::i18n::tr("Verify your email first.")); }
+    if email.as_ref().is_some_and(|e| e.homeserver != client.homeserver().as_str()) {
         bail!("{}", crate::i18n::tr("The server's registration method changed. Check the server again."));
     }
     let mut request = Request::new();
     request.username = Some(username);
     request.password = Some(password);
     request.refresh_token = true;
-    match client.matrix_auth().register(request.clone()).await {
-        Ok(_) => {}
-        Err(error) => {
-            let Some(challenge) = error.as_uiaa_response() else { return Err(error.into()) };
-            let session_id = challenge.session.clone();
-            let flow = challenge.flows.iter().find(|flow| flow.stages.as_slice() == [AuthType::Dummy])
-                .or_else(|| challenge.flows.iter().find(|flow| flow.stages.as_slice() == [AuthType::RegistrationToken]));
-            match flow.map(|flow| flow.stages.first()) {
-                Some(Some(AuthType::Dummy)) => {
-                    let mut auth = Dummy::new();
-                    auth.session = session_id;
-                    request.auth = Some(AuthData::Dummy(auth));
-                }
-                Some(Some(AuthType::RegistrationToken)) => {
-                    if token.is_empty() {
-                        bail!("This server requires a registration token. Enter it and try again.");
-                    }
-                    let mut auth = RegistrationToken::new(token);
-                    auth.session = session_id;
-                    request.auth = Some(AuthData::RegistrationToken(auth));
-                }
-                _ => bail!("This server requires a registration step that Rinx cannot complete yet."),
-            }
-            client.matrix_auth().register(request).await?;
+    if let Some(proof) = &email {
+        if let Some(session) = proof.registration_session.lock().unwrap().clone() {
+            request.auth = Some(serde_json::from_value(serde_json::json!({"type":"m.login.email.identity","session":session,"threepid_creds":{"sid":proof.sid,"client_secret":proof.client_secret}}))?);
         }
     }
-    if !client.matrix_auth().logged_in() {
-        bail!("Account created, but the server did not issue a login session. Please sign in.");
+    let mut attempted = Vec::new();
+    for _ in 0..4 {
+        match client.matrix_auth().register(request.clone()).await {
+            Ok(_) => {
+                if !client.matrix_auth().logged_in() { bail!("Account created, but the server did not issue a login session. Please sign in."); }
+                return Ok(());
+            }
+            Err(error) => {
+                let Some(challenge) = error.as_uiaa_response() else { return Err(error.into()) };
+                let flow = challenge.flows.iter().find(|flow| !flow.stages.is_empty() && flow.stages.iter().all(|s| matches!(s, AuthType::Dummy | AuthType::RegistrationToken | AuthType::EmailIdentity)))
+                    .ok_or_else(|| anyhow::anyhow!("This server requires a registration step that Rinx cannot complete yet."))?;
+                // Check the invitation before binding the email proof to UIAA.
+                if flow.stages.contains(&AuthType::RegistrationToken) && token.is_empty() {
+                    bail!("This server requires a registration token. Enter it and try again.");
+                }
+                let stage = flow.stages.iter().find(|s| !challenge.completed.contains(s))
+                    .ok_or_else(|| anyhow::anyhow!("The server returned an incomplete registration response."))?;
+                if attempted.contains(stage) { return Err(error.into()) }
+                attempted.push(stage.clone());
+                let session = challenge.session.clone().ok_or_else(|| anyhow::anyhow!("The server did not return a registration session."))?;
+                if let Some(proof) = &email { *proof.registration_session.lock().unwrap() = Some(session.clone()); }
+                request.auth = Some(match stage {
+                    AuthType::Dummy => {
+                        let mut auth = Dummy::new(); auth.session = Some(session); AuthData::Dummy(auth)
+                    }
+                    AuthType::RegistrationToken => {
+                        if token.is_empty() { bail!("This server requires a registration token. Enter it and try again."); }
+                        let mut auth = RegistrationToken::new(token.clone()); auth.session = Some(session); AuthData::RegistrationToken(auth)
+                    }
+                    AuthType::EmailIdentity => {
+                        let proof = email.as_ref().ok_or_else(|| anyhow::anyhow!("{}", crate::i18n::tr("Verify your email first.")))?;
+                        serde_json::from_value(serde_json::json!({"type":"m.login.email.identity","session":session,"threepid_creds":{"sid":proof.sid,"client_secret":proof.client_secret}}))?
+                    }
+                    _ => unreachable!(),
+                });
+            }
+        }
     }
-    Ok(())
+    bail!("The server did not complete registration. Please try again.")
 }
 
 #[cfg(not(target_os = "ios"))]
@@ -345,6 +364,7 @@ mod tests {
             let requests = Arc::new(Mutex::new(Vec::new()));
             let received = requests.clone();
             let thread = std::thread::spawn(move || {
+                let mut email_completed = false;
                 while !stopped.load(Ordering::Relaxed) {
                     let Ok((mut socket, _)) = listener.accept() else {
                         std::thread::sleep(std::time::Duration::from_millis(5));
@@ -382,7 +402,7 @@ mod tests {
                     received.lock().unwrap().push((route.clone(), json.clone()));
                     let mut status = "200 OK";
                     let response = if route.contains("/versions ") {
-                        serde_json::json!({"versions":["v1.11"],"unstable_features":{}})
+                        serde_json::json!({"versions":["v1.11"],"unstable_features":{"org.palpo.registration.email_otp":registration_token == Some("__email__")}})
                     } else if route.contains("/auth_metadata ") {
                         serde_json::json!({"prompt_values_supported":["login","create"]})
                     } else if route.starts_with("GET ") && route.contains("/login ") {
@@ -390,6 +410,25 @@ mod tests {
                             serde_json::json!({"flows":[{"type":"m.login.password"}]})
                         } else {
                             serde_json::json!({"flows":[{"type":"m.login.password"},{"type":"m.login.sso","oauth_aware_preferred":true,"identity_providers":[{"id":"company-custom-id","name":"Company SSO"}]},{"type":"m.login.token"}]})
+                        }
+                    } else if route.contains("/email/requestToken ") {
+                        serde_json::json!({"sid":"email-session", "submit_url":"https://untrusted.example/submit"})
+                    } else if route.contains("/email/submitToken ") {
+                        if json["token"] == "123456" && json["sid"] == "email-session" {
+                            serde_json::json!({"success":true})
+                        } else {
+                            status = "403 Forbidden";
+                            serde_json::json!({"errcode":"M_FORBIDDEN","error":"Code incorrect or expired."})
+                        }
+                    } else if route.starts_with("POST ") && route.contains("/register ") && registration_token == Some("__email__") {
+                        if json["auth"]["type"] == "m.login.email.identity" && json["auth"]["threepid_creds"]["sid"] == "email-session" {
+                            email_completed = true;
+                        }
+                        if email_completed && json["auth"]["type"] == "m.login.registration_token" && json["auth"]["token"] == "invite" {
+                            serde_json::json!({"user_id":"@fixture:localhost","device_id":"TESTDEVICE","access_token":"fixture-access"})
+                        } else {
+                            status = "401 Unauthorized";
+                            serde_json::json!({"flows":[{"stages":["m.login.email.identity","m.login.registration_token"]}],"completed":if email_completed {vec!["m.login.email.identity"]} else {vec![]}, "session":"email-registration-session"})
                         }
                     } else if route.starts_with("POST ") && route.contains("/register ") && registration_token.is_some() {
                         let stage = if registration_token == Some("") { "m.login.dummy" } else { "m.login.registration_token" };
@@ -434,6 +473,34 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_email_otp_and_invitation_keep_the_same_server_and_session() {
+        use super::super::email_verification::{self, EmailProof};
+        let server = Server::with_registration(Some("__email__"));
+        let client = server.client().await;
+        assert!(login_methods(&client).await.unwrap().email_otp);
+        let error = register_account(&client, "new_user".into(), "password".into(), "invite".into(), None).await.unwrap_err();
+        assert!(error.to_string().contains("email"));
+        assert!(!server.requests.lock().unwrap().iter().any(|(route,_)| route.starts_with("POST")));
+        let secret = uuid::Uuid::new_v4().simple().to_string();
+        let sid = email_verification::send(client.homeserver().as_str(), "person@example.org", &secret, 1).await.unwrap();
+        let proof = EmailProof { homeserver:client.homeserver().to_string(), sid, client_secret:secret.clone(), registration_session:Default::default() };
+        assert!(email_verification::verify(&proof,"000000").await.is_err());
+        email_verification::verify(&proof,"123456").await.unwrap();
+        // A bad invitation must be correctable without resending the email.
+        assert!(register_account(&client,"new_user".into(),"password".into(),"bad-invite".into(),Some(proof.clone())).await.is_err());
+        assert_eq!(proof.registration_session.lock().unwrap().as_deref(),Some("email-registration-session"));
+        register_account(&client,"new_user".into(),"password".into(),"invite".into(),Some(proof)).await.unwrap();
+        let requests = server.requests.lock().unwrap();
+        let credentials: Vec<_> = requests.iter().filter(|(_,body)|body["auth"]["type"] == "m.login.email.identity").collect();
+        assert_eq!(credentials.len(),2);
+        for (_,body) in credentials {
+            assert_eq!(body["auth"]["session"],"email-registration-session");
+            assert_eq!(body["auth"]["threepid_creds"]["client_secret"],secret);
+            assert!(body["auth"]["token"].is_null());
+        }
+    }
+
+    #[tokio::test]
     async fn reads_actual_advertised_methods_and_custom_provider_names() {
         let server = Server::new();
         let methods = login_methods(&server.client().await).await.unwrap();
@@ -449,7 +516,8 @@ mod tests {
         let mut methods = LoginMethods {
             homeserver: "https://discovered.example/".into(),
             password: false, sso: true, oauth_aware_preferred: true,
-            browser_registration: false, providers: Vec::new(),
+            browser_registration: false,
+        email_otp: false, providers: Vec::new(),
         };
         assert_eq!(methods.registration_route("matrix.org"), RegistrationRoute::Unavailable);
         assert_eq!(methods.registration_route("mozilla.org"), RegistrationRoute::Website("https://chat.mozilla.org"));
@@ -475,7 +543,7 @@ mod tests {
         discover("", &previous.url).await.unwrap();
         let methods = discover("", &selected.url).await.unwrap();
         let client = Client::builder().homeserver_url(&methods.homeserver).build().await.unwrap();
-        register_account(&client, "selected_user".into(), "selected-server-password".into(), "".into()).await.unwrap();
+        register_account(&client, "selected_user".into(), "selected-server-password".into(), "".into(), None).await.unwrap();
         assert!(previous.requests.lock().unwrap().iter().all(|(route, body)| route.starts_with("GET ") && body.is_null()));
         let received = selected.requests.lock().unwrap();
         let posts: Vec<_> = received.iter().filter(|(route, _)| route.starts_with("POST ")).collect();
@@ -486,7 +554,7 @@ mod tests {
     #[tokio::test]
     async fn migrated_server_does_not_receive_native_registration_credentials() {
         let server = Server::new(); // MAS, including its compatibility password login.
-        let error = register_account(&server.client().await, "new_user".into(), "secret-password".into(), "".into()).await.unwrap_err();
+        let error = register_account(&server.client().await, "new_user".into(), "secret-password".into(), "".into(), None).await.unwrap_err();
         assert!(error.to_string().contains("registration method changed"));
         assert!(server.requests.lock().unwrap().iter().all(|(route, body)| route.starts_with("GET ") && body.is_null()));
     }
@@ -525,7 +593,7 @@ mod tests {
     async fn legacy_registration_completes_dummy_challenge() {
         let server = Server::with_registration(Some(""));
         let client = server.client().await;
-        register_account(&client, "new_user".into(), "a-strong-password".into(), "".into()).await.unwrap();
+        register_account(&client, "new_user".into(), "a-strong-password".into(), "".into(), None).await.unwrap();
         assert!(client.matrix_auth().logged_in());
         let requests = server.requests.lock().unwrap();
         let registrations: Vec<_> = requests.iter().filter(|(route, _)| route.contains("/register ")).collect();
@@ -538,9 +606,9 @@ mod tests {
     async fn token_registration_requires_a_token_before_retrying() {
         let server = Server::with_registration(Some("invite"));
         let client = server.client().await;
-        let error = register_account(&client, "new_user".into(), "a-strong-password".into(), "".into()).await.unwrap_err();
+        let error = register_account(&client, "new_user".into(), "a-strong-password".into(), "".into(), None).await.unwrap_err();
         assert!(error.to_string().contains("registration token"));
-        register_account(&client, "new_user".into(), "a-strong-password".into(), "invite".into()).await.unwrap();
+        register_account(&client, "new_user".into(), "a-strong-password".into(), "invite".into(), None).await.unwrap();
         let requests = server.requests.lock().unwrap();
         let registrations: Vec<_> = requests.iter().filter(|(route, _)| route.contains("/register ")).collect();
         assert_eq!(registrations.len(), 3);

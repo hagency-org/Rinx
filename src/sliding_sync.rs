@@ -769,7 +769,7 @@ pub enum MatrixRequest {
     /// While an SSO request is in flight, the login screen will temporarily prevent the user
     /// from submitting another redundant request, until this request has succeeded or failed.
     SpawnSSOServer { homeserver_url: String, provider_id: Option<String>, register: bool },
-    RegisterAccount { homeserver_url: String, username: String, password: String, token: String },
+    RegisterAccount { homeserver_url: String, username: String, password: String, token: String, email: Option<crate::login::email_verification::EmailProof> },
     CancelSsoLogin,
     /// Subscribe to typing notices for the given room.
     ///
@@ -2209,11 +2209,11 @@ async fn matrix_worker_task(
                     }
                 }));
             }
-            MatrixRequest::RegisterAccount { homeserver_url, username, password, token } => {
+            MatrixRequest::RegisterAccount { homeserver_url, username, password, token, email } => {
                 if sso_task.as_ref().is_some_and(|task| !task.is_finished()) { continue; }
                 let sender = login_sender.clone();
                 sso_task = Some(crate::account_session::spawn(async move {
-                    match run_registration(homeserver_url, username, password, token).await {
+                    match run_registration(homeserver_url, username, password, token, email).await {
                         Ok((client, session)) => {
                             Cx::post_action(LoginAction::Status {
                                 title: "Finishing registration".into(), status: "Loading your account…".into(),
@@ -5975,11 +5975,12 @@ async fn run_registration(
     username: String,
     password: String,
     token: String,
+    email: Option<crate::login::email_verification::EmailProof>,
 ) -> Result<(Client, ClientSessionPersisted)> {
     let (client, session) = build_client(&Cli {
         homeserver: Some(homeserver_url), ..Default::default()
     }, app_data_dir()).await?;
-    crate::login::homeserver::register_account(&client, username, password, token).await?;
+    crate::login::homeserver::register_account(&client, username, password, token, email).await?;
     Ok((client, session))
 }
 
