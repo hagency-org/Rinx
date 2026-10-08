@@ -1158,6 +1158,8 @@ impl AppMain for App {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
         #[cfg(feature = "palpo-instrument")]
         if crate::performance::begin(cx, event) { return; }
+        #[cfg(feature = "palpo-instrument")]
+        let mut event_trace = crate::performance::trace_event(cx, event);
         crate::theme::system::handle_event(cx, event);
         // Peek at Back instead of `back_pressed()`, which marks it handled: Back
         // is taken only when it closes one of these modals. Otherwise it goes on
@@ -1223,14 +1225,20 @@ impl AppMain for App {
         // Forward events to the MatchEvent trait implementation.
         #[cfg(feature = "palpo-instrument")]
         crate::performance::phase(cx, "rinx_prepare");
+        #[cfg(feature = "palpo-instrument")]
+        event_trace.phase(c"rinx.match");
         self.match_event(cx, event);
         #[cfg(feature = "palpo-instrument")]
         crate::performance::phase(cx, "rinx_match");
+        #[cfg(feature = "palpo-instrument")]
+        event_trace.phase(c"rinx.widgets");
         crate::agent_access::publish(current_user_id(), &self.app_state.agent_access);
         let scope = &mut Scope::with_data(&mut self.app_state);
         self.ui.handle_event(cx, event, scope);
         #[cfg(feature = "palpo-instrument")]
         crate::performance::phase(cx, "rinx_widgets");
+        #[cfg(feature = "palpo-instrument")]
+        event_trace.phase(c"rinx.finish");
         // The backend may restore the next account only after every child has
         // consumed ClearAppState, including hidden settings/room widgets.
         if let Event::Actions(actions) = event {

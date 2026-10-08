@@ -68,7 +68,7 @@ script_mod! {
                 title.text: #(crate::i18n::tr("Chats")) title.i18n_text: "Chats"
                 controls.right.visible: true
             }
-            SolidView {
+            search_area := SolidView {
                 width: Fill height: 48
                 padding: Inset{left: 10 right: 10 bottom: 10}
                 draw_bg.color: MOBILE_BG
@@ -113,6 +113,9 @@ pub struct RoomsSideBar {
 
     /// The most recently applied view-mode override.
     #[rust] applied_view_mode: ViewModeOverride,
+
+    #[rust] mobile_search_collapsed: bool,
+    #[rust] pending_search_focus: bool,
 }
 
 impl ScriptHook for RoomsSideBar {
@@ -136,6 +139,46 @@ impl RoomsSideBar {
     fn apply_view_mode(&mut self, mode: ViewModeOverride) {
         self.view.set_variant_selector(mode.variant_selector());
         self.applied_view_mode = mode;
+    }
+
+    fn active_mobile_list(&self, cx: &mut Cx) -> PortalListRef {
+        if cx.global::<ChatsViewState>().spaces {
+            self.view.portal_list(cx, ids!(joined_spaces.list))
+        } else {
+            self.view.portal_list(cx, ids!(rooms_list.list))
+        }
+    }
+
+    fn update_mobile_search(&mut self, cx: &mut Cx) {
+        if crate::home::home_screen::effective_is_desktop(cx) {
+            self.pending_search_focus = false;
+            return;
+        }
+        let list = self.active_mobile_list(cx);
+        let collapsed = list.first_id() != 0 || list.scroll_position() < -0.5;
+        self.view.view(cx, ids!(search_area)).set_visible(cx, !collapsed);
+        self.view.button(cx, ids!(title_bar.controls.search)).set_visible(cx, collapsed);
+        if collapsed != self.mobile_search_collapsed {
+            self.mobile_search_collapsed = collapsed;
+            if collapsed {
+                let input = self.view.text_input(cx, ids!(room_filter_input_bar.input));
+                if cx.has_key_focus(input.area()) {
+                    cx.set_key_focus(Area::Empty);
+                    cx.hide_text_ime();
+                }
+            }
+            // Redraw the enclosing layout only when the header changes. The
+            // list keeps its per-scroll actions disabled on the hot path.
+            self.view.redraw(cx);
+        }
+    }
+
+    fn open_mobile_search(&mut self, cx: &mut Cx) {
+        if crate::home::home_screen::effective_is_desktop(cx) { return; }
+        self.pending_search_focus = true;
+        // This API cancels a running fling before returning to the beginning.
+        self.active_mobile_list(cx).smooth_scroll_to(cx, 0, 1000.0, Some(1), 0.0);
+        self.view.redraw(cx);
     }
 }
 
@@ -162,6 +205,9 @@ impl Widget for RoomsSideBar {
                     crate::home::navigation_tab_bar::SelectedTab::Contacts,
                 ));
             }
+            if self.view.button(cx, ids!(title_bar.controls.search)).clicked(actions) {
+                self.open_mobile_search(cx);
+            }
             if let Some(keywords) = self.view.room_filter_input_bar(cx, ids!(room_filter_input_bar)).changed(actions) {
                 cx.action(MainFilterAction::Changed(keywords));
             }
@@ -169,6 +215,7 @@ impl Widget for RoomsSideBar {
             for action in actions {
                 if let Some(crate::logout::logout_confirm_modal::LogoutAction::ClearAppState {..}) = action.downcast_ref() {
                     cx.global::<ChatsViewState>().spaces = false;
+                    self.pending_search_focus = false;
                 }
                 // A legacy desktop Space shortcut still opens its filtered list.
                 if let Some(NavigationBarAction::TabSelected(SelectedTab::Space {..})) = action.downcast_ref() {
@@ -177,10 +224,7 @@ impl Widget for RoomsSideBar {
                 // The header's search icon: on mobile the filter bar lives right
                 // here, so focus it. (Desktop hosts the bar in the HomeScreen.)
                 if let Some(RoomsListHeaderAction::OpenRoomFilterModal) = action.downcast_ref() {
-                    let input = self.view.text_input(cx, ids!(room_filter_input_bar.input));
-                    if !input.is_empty() {
-                        input.set_key_focus(cx);
-                    }
+                    self.open_mobile_search(cx);
                 }
                 if let Some(AppPreferencesAction::ViewModeChanged(new_mode)) = action.downcast_ref() {
                     if *new_mode != self.applied_view_mode {
@@ -191,6 +235,7 @@ impl Widget for RoomsSideBar {
             }
         }
         self.view.handle_event(cx, event, scope);
+        self.update_mobile_search(cx);
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
@@ -202,6 +247,17 @@ impl Widget for RoomsSideBar {
         self.view.navigation_bar_button(cx, ids!(all_chats)).set_selected(cx, !spaces);
         self.view.navigation_bar_button(cx, ids!(joined_spaces_tab)).set_selected(cx, spaces);
         self.view.joined_spaces(cx, ids!(joined_spaces)).set_active(cx, spaces);
-        self.view.draw_walk(cx, scope, walk)
+        self.update_mobile_search(cx);
+        let search_drawn = !self.mobile_search_collapsed;
+        let step = self.view.draw_walk(cx, scope, walk);
+        if step.is_done() {
+            // Drawing may normalize/clamp the list after filtering or loading.
+            self.update_mobile_search(cx);
+            if self.pending_search_focus && search_drawn && !self.mobile_search_collapsed {
+                self.pending_search_focus = false;
+                self.view.text_input(cx, ids!(room_filter_input_bar.input)).take_key_focus(cx);
+            }
+        }
+        step
     }
 }
