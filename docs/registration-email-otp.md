@@ -56,3 +56,14 @@ create an account with an invitation, and enter the signed-in chat interface.
 ![Phone-size code entry, with resend cooldown and visible return action](screenshots/registration-email/phone-code.png)
 
 ![Desktop native email entry in Chinese](screenshots/registration-email/desktop-email-zh.png)
+
+## Live acceptance, 2026-10-08
+
+Native macOS Rinx completed registration against the deployed mini2 Palpo at
+`https://river.ominix.io`, with a real AgentMail message and a code supplied from
+the recipient mailbox. Email verification, account creation, automatic sign-in,
+stored email retrieval and the first authenticated Matrix sync all passed.
+An expired code was rejected and the resend action completed the same native
+flow with a fresh code. Palpo also retained the pending proof across a restart.
+This live check complements the isolated desktop/phone-size checks above; it
+does not establish physical Android/iOS email autofill behavior.
