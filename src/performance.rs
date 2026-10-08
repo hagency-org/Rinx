@@ -170,6 +170,15 @@ fn stop(cx: &mut Cx, path: &PathBuf) {
         "elapsed_ms": probe.started.map(|s| s.elapsed().as_secs_f64() * 1000.0),
         "events_and_phases_ms": probe.samples,
         "frames_painted": frame_count,
+        "work": cx.perf_monitor.work().iter().map(|sample| json!({
+            "operation": sample.operation,
+            "component": sample.component.to_string(),
+            "calls": sample.calls,
+            "total_ms": sample.total_ns as f64 / 1_000_000.0,
+            "self_ms": sample.self_ns as f64 / 1_000_000.0,
+            "max_ms": sample.max_ns as f64 / 1_000_000.0,
+        })).collect::<Vec<_>>(),
+        "work_overflow": cx.perf_monitor.work_overflow(),
         "channels": channels,
         "recent_frames": frames.into_iter().filter(|f| f.gap_ms > 0.0).map(|f| json!({
             "gap_ms": f.gap_ms, "channel_us": f.channel_us,
