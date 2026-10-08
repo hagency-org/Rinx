@@ -50,7 +50,9 @@ script_mod! {
             CachedWidget {
                 rooms_list_header := RoomsListHeader {}
             }
-            room_filter_input_bar := RoomFilterInputBar {}
+            CachedWidget {
+                room_filter_input_bar := RoomFilterInputBar {}
+            }
             // No "All Chats | Spaces" switch here: on desktop, spaces live in the
             // navigation rail on the left, and selecting one filters this list.
             file_transfer_entry := MobileRow {height: 46 title.text: #(crate::i18n::tr("File Transfer")) title.i18n_text: "File Transfer" icon.draw_icon.svg: ICON_FILE}
