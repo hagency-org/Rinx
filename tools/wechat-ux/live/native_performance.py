@@ -108,7 +108,7 @@ def main():
             results.append(app.measure('login-typing', app.type_sentence))
             app.login(fixture, 'alice')
             app.active('alice')
-            app.click(850, 150)
+            app.request('/k', c='Escape', wait=1)
             time.sleep(3)
             results.append(app.measure('home-idle', lambda: time.sleep(5)))
             (app.root / 'home-widgets.json').write_text(json.dumps(app.snap(), indent=2))

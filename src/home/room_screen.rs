@@ -878,6 +878,8 @@ script_mod! {
             emit_scroll_actions: true,
             // Prefetch older history shortly before the user actually hits the top.
             reached_start_margin: 2,
+            // Keep a bounded set of recent messages intact while scrolling back.
+            cache_items: 32,
             // TODO: enable `reuse_items: true` once Makepad's Html/TextFlow widget
             //   properly resets all internal state during `script_apply(Reload)`.
             //   Currently, stale TextFlow layout state (particularly related to

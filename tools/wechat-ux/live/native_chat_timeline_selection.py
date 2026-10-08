@@ -117,6 +117,28 @@ def main():
         drag([(x, y), (x, y - 50), (x, y - 100)])
         assert position(state()) != position(before)
         report["checks"].append("empty_timeline_margin_still_allows_drag_scrolling")
+
+        app.click_id("reset")
+        before = state()
+        for _ in range(3):
+            app.request("/m", k="scroll", x=x, y=y, dy=180, wait=1)
+        app.click_id("reset")
+        after = state()
+        assert after["row6_uid"] == before["row6_uid"], (before, after)
+        report["checks"].append("recent_message_widget_is_retained_when_scrolling_back")
+
+        for _ in range(14):
+            app.request("/m", k="scroll", x=x, y=y, dy=1000, wait=1)
+            after = state()
+            # The 32 recent identities plus the visible viewport are bounded.
+            assert after["retained_items"] <= 38, after
+        assert after["first_id"] > 40, after
+        assert after["row6_uid"] is None, after
+        app.click_id("reset")
+        after = state()
+        assert after["row6_uid"] != before["row6_uid"], (before, after)
+        assert not selection(after, 6), after
+        report["checks"].append("cache_evicts_old_messages_and_recreated_message_has_no_stale_selection")
         report["passed"] = True
     finally:
         app.process.terminate()
