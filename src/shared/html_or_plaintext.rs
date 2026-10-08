@@ -327,8 +327,10 @@ impl Widget for RobrixHtmlLink {
     }
 
     fn set_text(&mut self, cx: &mut Cx, v: &str) {
-        self.text.as_mut_empty().push_str(v);
-        self.redraw(cx);
+        if self.text.as_ref() != v {
+            self.text.as_mut_empty().push_str(v);
+            self.redraw(cx);
+        }
     }
 }
 
@@ -349,7 +351,7 @@ impl RobrixHtmlLink {
     ) -> DrawStep {
         if let Some(matrix_id) = self.matrix_id.as_ref() {
             if let Some(mut pill) = self.matrix_link_pill(cx, ids!(matrix_link)).borrow_mut() {
-                pill.populate_pill(cx, self.url.clone(), matrix_id, &self.via, self.text.as_ref());
+                pill.populate_pill(cx, &self.url, matrix_id, &self.via, self.text.as_ref());
             }
         }
         let matrix_link_view_ref = self.view(cx, ids!(matrix_link_view));
@@ -395,7 +397,7 @@ impl RobrixHtmlLink {
 /// A pill-shaped widget that shows a Matrix link as an avatar and a title.
 ///
 /// This can be a link to a user, a room, or an event in a room.
-#[derive(Script, ScriptHook, Widget)]
+#[derive(Script, Widget)]
 struct MatrixLinkPill {
     #[deref] view: View,
 
@@ -404,11 +406,23 @@ struct MatrixLinkPill {
     #[rust] url: String,
     /// Whether this pill is still waiting for its name or avatar to arrive.
     #[rust] is_waiting_for_data: bool,
+    #[rust] link_text: String,
+    #[rust] refresh_pending: bool,
+}
+
+impl ScriptHook for MatrixLinkPill {
+    fn on_after_apply(&mut self, _vm: &mut ScriptVm, _apply: &Apply, _scope: &mut Scope, _value: ScriptValue) {
+        // A theme reload may replace the presentation even when the URL is unchanged.
+        self.refresh_pending = true;
+    }
 }
 
 impl Widget for MatrixLinkPill {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, _scope: &mut Scope) {
         if matches!(event, Event::Signal) {
+            // Async profile/preview/image results arrive on signals. Defer their
+            // presentation until a draw is requested; scrolling alone changes no data.
+            self.refresh_pending = true;
             room_preview_cache::process_room_preview_updates(cx);
             if self.matrix_id.is_some() && self.is_waiting_for_data {
                 user_profile_cache::process_user_profile_updates(cx);
@@ -452,8 +466,20 @@ impl Widget for MatrixLinkPill {
 
 impl MatrixLinkPill {
     /// Populates this pill's info based on the given Matrix ID and via servers.
-    fn populate_pill(&mut self, cx: &mut Cx, url: String, matrix_id: &MatrixId, via: &[OwnedServerName], link_text: &str) {
-        self.url = url;
+    fn populate_pill(&mut self, cx: &mut Cx, url: &str, matrix_id: &MatrixId, via: &[OwnedServerName], link_text: &str) {
+        if !self.refresh_pending
+            && self.url == url
+            && self.matrix_id.as_ref() == Some(matrix_id)
+            && self.via == via
+            && self.link_text == link_text
+        {
+            return;
+        }
+        self.refresh_pending = false;
+        self.link_text.clear();
+        self.link_text.push_str(link_text);
+        self.url.clear();
+        self.url.push_str(url);
         self.matrix_id = Some(matrix_id.clone());
         self.via = via.to_vec();
 
