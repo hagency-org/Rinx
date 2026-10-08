@@ -878,6 +878,8 @@ script_mod! {
             emit_scroll_actions: true,
             // Prefetch older history shortly before the user actually hits the top.
             reached_start_margin: 2,
+            // Keep a bounded set of recent messages intact while scrolling back.
+            cache_items: 32,
             // TODO: enable `reuse_items: true` once Makepad's Html/TextFlow widget
             //   properly resets all internal state during `script_apply(Reload)`.
             //   Currently, stale TextFlow layout state (particularly related to
@@ -1781,6 +1783,8 @@ impl Widget for RoomScreen {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        #[cfg(feature = "palpo-instrument")]
+        let _trace = crate::performance::trace_span(cx, c"rinx.timeline.draw");
         self.update_desktop_chat_header(cx);
         // If the room isn't loaded yet, we show the restore status label only.
         if !self.is_loaded {
@@ -1821,6 +1825,8 @@ impl Widget for RoomScreen {
 
             while let Some(item_id) = list.next_visible_item(cx) {
                 let item = {
+                    #[cfg(feature = "palpo-instrument")]
+                    let _trace = crate::performance::trace_span(cx, c"rinx.timeline.populate");
                     let tl_idx = item_id;
                     let Some(timeline_item) = tl_items.get(tl_idx) else {
                         // This shouldn't happen (unless the timeline gets corrupted or some other weird error),
@@ -2024,6 +2030,8 @@ impl Widget for RoomScreen {
                     }
                     item
                 };
+                #[cfg(feature = "palpo-instrument")]
+                let _trace = crate::performance::trace_span(cx, c"rinx.message.draw");
                 item.draw_all(cx, scope);
             }
 
@@ -3891,6 +3899,8 @@ impl RoomScreen {
 
     /// Fills in the desktop single-pane title bar, if this instance has one enabled.
     fn update_desktop_chat_header(&mut self, cx: &mut Cx) {
+        #[cfg(feature = "palpo-instrument")]
+        let _trace = crate::performance::trace_span(cx, c"rinx.chat.header");
         let header = self.view.view(cx, ids!(desktop_chat_header));
         if !header.visible() { return }
         let Some(room_name_id) = self.room_name_id.as_ref() else { return };
@@ -4942,6 +4952,8 @@ fn populate_message_view(
     item_drawn_status: ItemDrawnStatus,
     room_screen_widget_uid: WidgetUid,
 ) -> (WidgetRef, ItemDrawnStatus) {
+    #[cfg(feature = "palpo-instrument")]
+    let _trace = crate::performance::trace_span(cx, c"rinx.message.populate");
     let mut new_drawn_status = item_drawn_status;
     let ts_millis = event_tl_item.timestamp();
 
@@ -4988,6 +5000,8 @@ fn populate_message_view(
                 None
             };
             let article = event_tl_item.latest_json().and_then(|raw| {
+                #[cfg(feature = "palpo-instrument")]
+                let _trace = crate::performance::trace_span(cx, c"rinx.message.classify");
                 let value: serde_json::Value = serde_json::from_str(raw.json().get()).ok()?;
                 crate::article_app::backend::ArticleContent::parse(&value["content"]).ok()
             });
@@ -5048,7 +5062,11 @@ fn populate_message_view(
                     } else {
                         id!(Message)
                     };
-                    let (item, existed) = list.item_with_existed(cx, item_id, template);
+                    let (item, existed) = {
+                        #[cfg(feature = "palpo-instrument")]
+                        let _trace = crate::performance::trace_span(cx, c"rinx.message.template");
+                        list.item_with_existed(cx, item_id, template)
+                    };
                     if existed && item_drawn_status.content_drawn {
                         (item, true)
                     } else {
@@ -5946,6 +5964,8 @@ pub(crate) fn populate_text_message_content(
     media_cache: Option<&mut MediaCache>,
     link_preview_cache: Option<&mut LinkPreviewCache>,
 ) -> bool {
+    #[cfg(feature = "palpo-instrument")]
+    let _trace = crate::performance::trace_span(cx, c"rinx.message.text");
     /// If this is a room mention, replace `@room` text in `html` with a pill
     /// link to the room so it renders as a red room pill with the room's avatar.
     fn apply_room_mention<'a>(html: Cow<'a, str>, room_id: Option<&OwnedRoomId>) -> Cow<'a, str> {

@@ -19,7 +19,8 @@ from native_probe import NativeApp
 
 
 class MatrixFixture:
-    def __init__(self):
+    def __init__(self, sync_delay=.15):
+        self.sync_delay = sync_delay
         self.tokens = {}
         self.logouts = []
         self.logins = []
@@ -76,7 +77,7 @@ class MatrixFixture:
                     fixture.tokens.pop(token, None)
                 elif path.endswith('/sync'):
                     # Slow the otherwise empty fixture to avoid a busy sync loop.
-                    time.sleep(.15)
+                    time.sleep(fixture.sync_delay)
                     lists = {name: {'count': 0, 'ops': []} for name in body.get('lists', {})}
                     value = {'pos': str(time.time_ns()), 'lists': lists, 'rooms': {}, 'extensions': {
                         'to_device': {'next_batch': str(time.time_ns()), 'events': []},

@@ -14,6 +14,40 @@ unsafe extern "C" {
     fn ATrace_endSection();
 }
 
+/// A nested timing section inside an explicitly enabled Android capture.
+/// Static labels keep message contents and identifiers out of system traces.
+pub struct TraceSpan {
+    #[cfg(target_os = "android")]
+    enabled: bool,
+    _same_thread: std::marker::PhantomData<*mut ()>,
+}
+
+impl Drop for TraceSpan {
+    fn drop(&mut self) {
+        #[cfg(target_os = "android")]
+        if self.enabled {
+            unsafe { ATrace_endSection() };
+        }
+    }
+}
+
+pub fn trace_span(cx: &mut Cx, name: &'static std::ffi::CStr) -> TraceSpan {
+    #[cfg(target_os = "android")]
+    let enabled =
+        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    #[cfg(target_os = "android")]
+    if enabled {
+        unsafe { ATrace_beginSection(name.as_ptr()) };
+    }
+    #[cfg(not(target_os = "android"))]
+    let _ = (cx, name);
+    TraceSpan {
+        #[cfg(target_os = "android")]
+        enabled,
+        _same_thread: std::marker::PhantomData,
+    }
+}
+
 /// Paired Android trace sections for a bounded, explicitly enabled capture.
 /// Keep the guard on the event thread, including through early returns.
 pub struct EventTrace {

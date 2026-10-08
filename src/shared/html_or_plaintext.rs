@@ -913,6 +913,8 @@ impl Widget for HtmlOrPlaintext {
     }
 
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
+        #[cfg(feature = "palpo-instrument")]
+        let _trace = crate::performance::trace_span(cx, c"rinx.text.draw");
         if self.selectable && self.view(cx, ids!(html_view)).visible() {
             if let Some(mut html) = self.html(cx, ids!(html_view.html)).borrow_mut() {
                 // Html owns TextFlow::begin/end. Reserve its block backgrounds

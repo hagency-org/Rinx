@@ -54,7 +54,7 @@ impl MatchEvent for App {
         let mut cx = Cx2d::new(&mut draw);
         while let Some(widget) = self.ui.draw(&mut cx, &mut Scope::empty()).step() {
             let mut list = widget.borrow_mut::<PortalList>().unwrap();
-            list.set_item_range(&mut cx, 0, 30);
+            list.set_item_range(&mut cx, 0, 90);
             while let Some(index) = list.next_visible_item(&mut cx) {
                 let row = list.item(&mut cx, index, id!(Fixture));
                 row.label(&mut cx, ids!(row_id)).set_text(&mut cx, &format!("Row {index}"));
@@ -92,6 +92,8 @@ impl MatchEvent for App {
             let state = serde_json::json!({
                 "first_id": list.first_id(), "scroll": list.scroll_position(),
                 "selections": selections, "link_clicks": self.link_clicks,
+                "retained_items": list.borrow().map(|list| list.items().len()),
+                "row6_uid": list.get_item(6).map(|(_, row)| format!("{:?}", row.widget_uid())),
             });
             self.ui.label(cx, ids!(result)).set_text(cx, &state.to_string());
         }
