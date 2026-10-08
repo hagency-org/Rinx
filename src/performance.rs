@@ -1,6 +1,8 @@
 //! Opt-in Makepad timing capture for an isolated instrument run. Timing reports
 //! contain no UI content, account identifiers or credentials. Android's separate
 //! `rinx_perf_inspect` option also saves control geometry and a local app frame.
+//! `rinx_perf_trace` exports coarse Android trace sections without enabling the
+//! per-widget monitor, so system traces can diagnose normal frame pacing.
 use makepad_widgets::*;
 #[cfg(target_os = "android")]
 use makepad_widgets::makepad_platform::event::finger::TouchState;
@@ -34,8 +36,7 @@ impl Drop for TraceSpan {
 
 pub fn trace_span(cx: &mut Cx, name: &'static std::ffi::CStr) -> TraceSpan {
     #[cfg(target_os = "android")]
-    let enabled =
-        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    let enabled = trace_enabled(cx);
     #[cfg(target_os = "android")]
     if enabled {
         unsafe { ATrace_beginSection(name.as_ptr()) };
@@ -85,8 +86,7 @@ impl Drop for EventTrace {
 
 pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
     #[cfg(target_os = "android")]
-    let enabled =
-        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    let enabled = trace_enabled(cx);
     #[cfg(target_os = "android")]
     if enabled {
         let name = match event {
@@ -96,7 +96,15 @@ pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
             Event::Signal => c"rinx.signal",
             Event::Timer(_) => c"rinx.timer",
             Event::TextInput(_) => c"rinx.text_input",
-            Event::TouchUpdate(_) => c"rinx.touch",
+            Event::TouchUpdate(update) => {
+                if update.touches.iter().any(|touch| touch.state == TouchState::Start) {
+                    c"rinx.touch.down"
+                } else if update.touches.iter().any(|touch| touch.state == TouchState::Stop) {
+                    c"rinx.touch.up"
+                } else {
+                    c"rinx.touch.move"
+                }
+            }
             Event::KeyDown(_) | Event::KeyUp(_) => c"rinx.key",
             _ => c"rinx.other",
         };
@@ -112,6 +120,19 @@ pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
         enabled,
         _same_thread: std::marker::PhantomData,
     }
+}
+
+#[cfg(target_os = "android")]
+fn trace_enabled(cx: &mut Cx) -> bool {
+    static TRACE_ONLY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let trace_only = *TRACE_ONLY.get_or_init(|| {
+        std::env::var("MAKEPAD_APP_CONFIG").ok()
+            .and_then(|config| serde_json::from_str::<serde_json::Value>(&config).ok())
+            .and_then(|config| config.get("rinx_perf_trace").and_then(|value| value.as_bool()))
+            .unwrap_or(false)
+    });
+    (trace_only || (output().is_some() && cx.global::<Probe>().active))
+        && unsafe { ATrace_isEnabled() }
 }
 
 #[derive(Default)]
