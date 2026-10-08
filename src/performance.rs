@@ -166,6 +166,15 @@ fn inspection_enabled() -> bool {
 #[cfg(target_os = "android")]
 fn inspect(cx: &mut Cx, path: &PathBuf) {
     if !inspection_enabled() { return; }
+    // Shader indices in gpu.draws can otherwise identify only generic quads.
+    // Save their generated programs alongside this explicit local inspection.
+    let shaders: Vec<_> = cx.draw_shaders.shaders.iter().enumerate().filter_map(|(index, shader)| {
+        let program = cx.draw_shaders.os_shaders.get(shader.os_shader_id?)?;
+        Some(json!({"index": index, "vertex": program.in_vertex, "fragment": program.in_pixel}))
+    }).collect();
+    if let Err(error) = std::fs::write(path.with_extension("shaders.json"), serde_json::to_vec_pretty(&shaders).unwrap()) {
+        error!("Could not write instrument shader map: {error}");
+    }
     let widgets = cx.widget_snapshot_callback.map(|snapshot| snapshot(cx)).unwrap_or_default();
     let visible: Vec<_> = widgets.iter().filter(|w| w.visible).collect();
     let report = json!({
