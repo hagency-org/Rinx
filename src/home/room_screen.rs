@@ -1667,6 +1667,22 @@ impl Widget for RoomScreen {
             }
         }
 
+        // This list's Scroll notification is consumed above (read receipts and
+        // jump-to-bottom visibility). Its children do not consume it. Avoid
+        // walking every retained message/card again for this once-per-frame
+        // notification. Mixed batches and all other actions still reach them.
+        if let Event::Actions(actions) = event
+            && !actions.is_empty()
+            && actions.iter().all(|action| {
+                action.as_widget_action().is_some_and(|action| {
+                    action.widget_uid == portal_list.widget_uid()
+                        && matches!(action.cast_ref(), PortalListAction::Scroll)
+                })
+            })
+        {
+            return;
+        }
+
         // Forward the event to the inner timeline view, but capture any actions it produces
         // such that we can handle the ones relevant to only THIS RoomScreen widget right here and now,
         // ensuring they are not mistakenly handled by other RoomScreen widget instances.
@@ -7139,6 +7155,13 @@ impl Widget for Message {
         }
 
         let Some(d) = self.details.as_ref() else { return };
+        // Only the animator above and child animations consume frame ticks.
+        // Keep delivering them to children, including retained offscreen rows,
+        // without looking up reply/thread hit targets on every scroll frame.
+        if matches!(event, Event::NextFrame(_)) {
+            self.view.handle_event(cx, event, scope);
+            return;
+        }
         let room_screen_widget_uid = d.room_screen_widget_uid;
         let thread_root_event_id = d.thread_root_event_id.clone();
 
