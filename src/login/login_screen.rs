@@ -324,9 +324,68 @@ script_mod! {
                             draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
                             text: ""
                         }
+                        email_step := View {
+                            visible: false
+                            width: Fill, height: Fit, flow: Down, spacing: 12
+                            Label {
+                                width: Fill, height: Fit, padding: 0
+                                draw_text +: {color: COLOR_TEXT, text_style: REGULAR_TEXT {font_size: (12 * mod.widgets.RINX_TEXT_SCALE)}}
+                                text: #(crate::i18n::tr("Verify your email")) i18n_text: "Verify your email"
+                            }
+                            Label {
+                                width: Fill, height: Fit, padding: 0, flow: Flow.Right{wrap: true}
+                                draw_text +: {color: mod.widgets.RINX_MUTED, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                text: #(crate::i18n::tr("Your server will email a six-digit code. It expires in 10 minutes.")) i18n_text: "Your server will email a six-digit code. It expires in 10 minutes."
+                            }
+                            registration_email := RobrixTextInput {
+                                width: Fill, height: Fit, padding: 10
+                                empty_text: #(crate::i18n::tr("Email address")) i18n_empty_text: "Email address"
+                                autocapitalize: None, autocorrect: Disabled, content_type: EmailAddress, input_mode: Email
+                            }
+                            send_email_code := RobrixNeutralIconButton {
+                                width: Fill, height: 44, padding: 10
+                                align: Align{x: 0.5, y: 0.5}
+                                icon_walk: Walk{width: 0, height: 0}
+                                text: #(crate::i18n::tr("Send verification code")) i18n_text: "Send verification code"
+                            }
+                            email_code_fields := View {
+                                visible: false
+                                width: Fill, height: Fit, flow: Down, spacing: 12
+                                registration_email_code := RobrixTextInput {
+                                    width: Fill, height: Fit, padding: 10
+                                    empty_text: #(crate::i18n::tr("Six-digit code")) i18n_empty_text: "Six-digit code"
+                                    autocapitalize: None, autocorrect: Disabled, content_type: OneTimeCode, input_mode: Numeric
+                                }
+                                verify_email_code := RobrixIconButton {
+                                    width: Fill, height: 44, padding: 10
+                                    align: Align{x: 0.5, y: 0.5}
+                                    text: #(crate::i18n::tr("Verify and continue")) i18n_text: "Verify and continue"
+                                }
+                            }
+                            email_status := Label {
+                                width: Fill, height: Fit, padding: 0, flow: Flow.Right{wrap: true}
+                                draw_text +: {color: COLOR_TEXT, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                text: ""
+                            }
+                            email_back := mod.widgets.RinxFlatButton {
+                                width: Fill, height: 44
+                                text: #(crate::i18n::tr("Back to sign in")) i18n_text: "Back to sign in"
+                            }
+                        }
                         registration_form := View {
                             visible: false
                             width: Fill, height: Fit, flow: Down, spacing: 12
+                            verified_email_summary := Label {
+                                visible: false
+                                width: Fill, height: Fit, padding: 0, flow: Flow.Right{wrap: true}
+                                draw_text +: {color: COLOR_TEXT, text_style: REGULAR_TEXT {font_size: (10 * mod.widgets.RINX_TEXT_SCALE)}}
+                                text: ""
+                            }
+                            change_registration_email := mod.widgets.RinxFlatButton {
+                                visible: false
+                                width: Fill, height: 44
+                                text: #(crate::i18n::tr("Change email")) i18n_text: "Change email"
+                            }
                             registration_username := RobrixTextInput {
                                 width: Fill, height: Fit, padding: 10
                                 empty_text: #(crate::i18n::tr("Choose a username")) i18n_empty_text: "Choose a username"
@@ -382,12 +441,29 @@ pub struct LoginScreen {
     #[rust] history_rows: Vec<String>,
     #[rust] history_open: bool,
     #[rust] checked_server: String,
+    #[rust] email_state: EmailState,
+    #[rust] email_generation: u64,
+    #[rust] email_timer: Timer,
 
+}
+
+#[derive(Default)]
+struct EmailState {
+    secret: String,
+    address: String,
+    status: String,
+    sid: Option<String>,
+    verified: bool,
+    pending: bool,
+    attempt: u64,
+    resend_at: Option<std::time::Instant>,
+    registration_session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
 }
 
 
 impl Widget for LoginScreen {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        if self.email_timer.is_event(event).is_some() { self.refresh_email(cx); }
         let mut dismiss_history = false;
         if self.history_open {
             let input = self.view.text_input(cx, ids!(homeserver_input)).area().rect(cx);
@@ -504,13 +580,113 @@ impl LoginScreen {
         self.redraw(cx);
     }
 
+    fn reset_email(&mut self, cx: &mut Cx) {
+        self.email_generation += 1;
+        self.email_state = EmailState { secret: uuid::Uuid::new_v4().simple().to_string(), ..Default::default() };
+        self.view.text_input(cx, ids!(registration_email_code)).set_text(cx, "");
+        self.view.text_input(cx, ids!(registration_password)).set_text(cx, "");
+        self.view.label(cx, ids!(verified_email_summary)).set_visible(cx, false);
+        self.view.button(cx, ids!(change_registration_email)).set_visible(cx, false);
+        self.set_email_status(cx, "");
+    }
+
+    fn email_proof(&self) -> Option<super::email_verification::EmailProof> {
+        Some(super::email_verification::EmailProof {
+            homeserver: self.methods.as_ref()?.homeserver.clone(),
+            sid: self.email_state.sid.clone()?, client_secret: self.email_state.secret.clone(),
+            registration_session: self.email_state.registration_session.clone(),
+        })
+    }
+
+    fn set_email_status(&mut self, cx: &mut Cx, text: &str) {
+        self.email_state.status = text.to_owned();
+        self.view.label(cx, ids!(email_status)).set_text(cx, crate::i18n::tr(text));
+    }
+
+    fn refresh_email(&mut self, cx: &mut Cx) {
+        self.view.label(cx, ids!(email_status)).set_text(cx, crate::i18n::tr(&self.email_state.status));
+        if self.email_state.verified {
+            self.view.label(cx, ids!(verified_email_summary)).set_text(cx, &format!("{}: {}", crate::i18n::tr("Email verified"), self.email_state.address));
+        }
+        let remaining = self.email_state.resend_at.map(|at| at.saturating_duration_since(std::time::Instant::now()).as_secs()).unwrap_or(0);
+        let pending = self.email_state.pending || self.login_pending;
+        let label = if self.email_state.pending { crate::i18n::tr("Please wait…").to_owned() }
+            else if remaining > 0 { format!("{} ({remaining}s)", crate::i18n::tr("Resend code")) }
+            else if self.email_state.attempt > 0 { crate::i18n::tr("Resend code").to_owned() }
+            else { crate::i18n::tr("Send verification code").to_owned() };
+        self.view.button(cx, ids!(send_email_code)).set_text(cx, &label);
+        self.view.button(cx, ids!(send_email_code)).set_enabled(cx, !pending && remaining == 0);
+        self.view.button(cx, ids!(verify_email_code)).set_enabled(cx, !pending);
+        self.view.view(cx, ids!(email_code_fields)).set_visible(cx, self.email_state.sid.is_some());
+        if remaining == 0 && !self.email_timer.is_empty() { cx.stop_timer(self.email_timer); self.email_timer = Timer::empty(); }
+        self.redraw(cx);
+    }
+
+    fn handle_email_actions(&mut self, cx: &mut Cx, actions: &Actions) {
+        if self.login_pending || !self.registration_form_open { return }
+        if self.view.button(cx, ids!(change_registration_email)).clicked(actions) {
+            self.reset_email(cx);
+            self.view.view(cx, ids!(registration_form)).set_visible(cx, false);
+            self.view.view(cx, ids!(email_step)).set_visible(cx, true);
+            self.refresh_email(cx);
+        }
+        if self.view.text_input(cx, ids!(registration_email)).changed(actions).is_some() {
+            // Discard in-flight responses and proofs when the address changes.
+            self.reset_email(cx);
+            self.refresh_email(cx);
+        }
+        if self.view.button(cx, ids!(send_email_code)).clicked(actions) && !self.email_state.pending {
+            if self.email_state.resend_at.is_some_and(|at| at > std::time::Instant::now()) { return }
+            let address = self.view.text_input(cx, ids!(registration_email)).text().trim().to_owned();
+            if address.len() > 254 || !address.contains('@') || address.chars().any(char::is_whitespace) {
+                self.set_email_status(cx, crate::i18n::tr("Enter a valid email address.")); return;
+            }
+            let Some(server) = self.methods.as_ref().map(|m| m.homeserver.clone()) else { return };
+            self.email_generation += 1;
+            let generation = self.email_generation;
+            self.email_state.address = address.clone();
+            self.email_state.pending = true;
+            self.email_state.verified = false;
+            self.email_state.sid = None;
+            self.email_state.attempt += 1;
+            self.email_state.resend_at = Some(std::time::Instant::now() + std::time::Duration::from_secs(60));
+            self.email_timer = cx.start_interval(1.0);
+            self.view.text_input(cx, ids!(registration_email_code)).set_text(cx, "");
+            let secret = self.email_state.secret.clone();
+            let attempt = self.email_state.attempt;
+            self.set_email_status(cx, crate::i18n::tr("Sending verification code…"));
+            self.refresh_email(cx);
+            crate::sliding_sync::spawn_async_task(async move {
+                let result = super::email_verification::send(&server, &address, &secret, attempt).await.map_err(|e| e.to_string());
+                Cx::post_action(LoginAction::EmailSent { generation, result });
+            });
+        }
+        if self.view.button(cx, ids!(verify_email_code)).clicked(actions) && !self.email_state.pending {
+            let code = self.view.text_input(cx, ids!(registration_email_code)).text().trim().to_owned();
+            if code.len() != 6 || !code.bytes().all(|b| b.is_ascii_digit()) {
+                self.set_email_status(cx, crate::i18n::tr("Enter the six-digit email code.")); return;
+            }
+            let Some(proof) = self.email_proof() else { return };
+            let generation = self.email_generation;
+            self.email_state.pending = true;
+            self.set_email_status(cx, crate::i18n::tr("Verifying email…"));
+            self.refresh_email(cx);
+            crate::sliding_sync::spawn_async_task(async move {
+                let result = super::email_verification::verify(&proof, &code).await.map_err(|e| e.to_string());
+                Cx::post_action(LoginAction::EmailVerified { generation, result });
+            });
+        }
+    }
+
     fn reset_server(&mut self, cx: &mut Cx) {
+        self.reset_email(cx);
         self.discovery_generation += 1;
         self.discovery_pending = false;
         self.close_history(cx);
         self.methods = None;
         self.password_form_open = false;
         self.registration_form_open = false;
+        self.view.label(cx, ids!(title)).set_text(cx, crate::i18n::tr("Sign in to Rinx"));
         self.view.view(cx, ids!(server_step)).set_visible(cx, true);
         self.view.view(cx, ids!(method_step)).set_visible(cx, false);
         self.view.label(cx, ids!(server_status)).set_text(cx, "");
@@ -558,6 +734,7 @@ impl LoginScreen {
         self.password_form_open = has_password && !has_sso;
         self.view.view(cx, ids!(password_form)).set_visible(cx, self.password_form_open);
         self.view.view(cx, ids!(registration_form)).set_visible(cx, false);
+        self.view.view(cx, ids!(email_step)).set_visible(cx, false);
         self.view.view(cx, ids!(server_step)).set_visible(cx, false);
         self.view.view(cx, ids!(method_step)).set_visible(cx, true);
         self.methods = Some(methods);
@@ -566,6 +743,9 @@ impl LoginScreen {
     }
 
     fn refresh_method_copy(&mut self, cx: &mut Cx) {
+        self.view.label(cx, ids!(title)).set_text(cx, crate::i18n::tr(if self.registration_form_open { "Create an account" } else { "Sign in to Rinx" }));
+        self.view.label(cx, ids!(method_status)).set_visible(cx, !self.registration_form_open);
+        self.view.label(cx, ids!(registration_hint)).set_visible(cx, !self.registration_form_open);
         let Some(methods) = self.methods.as_ref() else { return };
         let description = if self.registration_form_open {
             crate::i18n::tr("Create an account on this server.")
@@ -618,6 +798,7 @@ impl MatchEvent for LoginScreen {
         }
         if language_changed {
             self.refresh_method_copy(cx);
+            self.refresh_email(cx);
         }
         let user_input = self.view.text_input(cx, ids!(user_id_input));
         let password_input = self.view.text_input(cx, ids!(password_input));
@@ -706,28 +887,38 @@ impl MatchEvent for LoginScreen {
                     self.view.button(cx, ids!(password_option_button)).set_visible(cx, false);
                     self.view.view(cx, ids!(password_form)).set_visible(cx, false);
                     self.view.button(cx, ids!(register_option_button)).set_visible(cx, false);
-                    self.view.view(cx, ids!(registration_form)).set_visible(cx, true);
+                    let email_required = self.methods.as_ref().is_some_and(|m| m.email_otp);
+                    self.view.view(cx, ids!(registration_form)).set_visible(cx, !email_required);
+                    self.view.view(cx, ids!(email_step)).set_visible(cx, email_required);
+                    if email_required { self.reset_email(cx); self.refresh_email(cx); }
                     self.refresh_method_copy(cx);
                 }
                 _ => {}
             }
         }
-        if !self.login_pending && self.view.button(cx, ids!(back_to_login_button)).clicked(actions) {
+        if !self.login_pending && (self.view.button(cx, ids!(back_to_login_button)).clicked(actions) || self.view.button(cx, ids!(email_back)).clicked(actions)) {
             if let Some(methods) = self.methods.clone() {
                 self.registration_form_open = false;
+                self.reset_email(cx);
                 self.show_methods(cx, methods);
             }
         }
+        self.handle_email_actions(cx, actions);
         if !self.login_pending && self.registration_form_open && self.view.button(cx, ids!(submit_registration_button)).clicked(actions) {
             let username = self.view.text_input(cx, ids!(registration_username)).text().trim().to_owned();
             let password = self.view.text_input(cx, ids!(registration_password)).text();
             let token = self.view.text_input(cx, ids!(registration_token)).text().trim().to_owned();
-            if username.is_empty() || password.is_empty() {
+            if self.methods.as_ref().is_some_and(|m| m.email_otp) && !self.email_state.verified {
+                self.view.view(cx, ids!(registration_form)).set_visible(cx, false);
+                self.view.view(cx, ids!(email_step)).set_visible(cx, true);
+                self.set_email_status(cx, crate::i18n::tr("Verify your email first."));
+            } else if username.is_empty() || password.is_empty() {
                 self.show_status(cx, crate::i18n::tr("Check registration details"), crate::i18n::tr("Enter a username and password."), crate::i18n::tr("Okay"), true);
             } else if let Some(homeserver_url) = self.methods.as_ref().map(|methods| methods.homeserver.clone()) {
                 self.login_pending = true;
                 self.show_status(cx, crate::i18n::tr("Creating account"), crate::i18n::tr("Contacting your server…"), crate::i18n::tr("Please wait…"), false);
-                submit_async_request(MatrixRequest::RegisterAccount { homeserver_url, username, password, token });
+                let email = self.email_proof();
+                submit_async_request(MatrixRequest::RegisterAccount { homeserver_url, username, password, token, email });
             }
         }
         if !self.login_pending && self.view.button(cx, ids!(browser_login_button)).clicked(actions) {
@@ -757,6 +948,32 @@ impl MatchEvent for LoginScreen {
                 }
             }
             match action.downcast_ref() {
+                Some(LoginAction::EmailSent { generation, result }) if *generation == self.email_generation => {
+                    self.email_state.pending = false;
+                    match result {
+                        Ok(sid) => {
+                            self.email_state.sid = Some(sid.clone());
+                            self.set_email_status(cx, crate::i18n::tr("Code sent. Check your inbox and spam folder."));
+                        }
+                        Err(error) => self.set_email_status(cx, error),
+                    }
+                    self.refresh_email(cx);
+                }
+                Some(LoginAction::EmailVerified { generation, result }) if *generation == self.email_generation => {
+                    self.email_state.pending = false;
+                    match result {
+                        Ok(()) => {
+                            self.email_state.verified = true;
+                            self.view.view(cx, ids!(email_step)).set_visible(cx, false);
+                            self.view.view(cx, ids!(registration_form)).set_visible(cx, true);
+                            self.view.label(cx, ids!(verified_email_summary)).set_text(cx, &format!("{}: {}", crate::i18n::tr("Email verified"), self.email_state.address));
+                            self.view.label(cx, ids!(verified_email_summary)).set_visible(cx, true);
+                            self.view.button(cx, ids!(change_registration_email)).set_visible(cx, true);
+                        }
+                        Err(error) => self.set_email_status(cx, error),
+                    }
+                    self.refresh_email(cx);
+                }
                 Some(LoginAction::ServerDiscovered { generation, result }) if *generation == self.discovery_generation => {
                     self.discovery_pending = false;
                     match result {
@@ -832,6 +1049,8 @@ pub enum LoginAction {
     SsoPending(bool),
     Cancelled,
     ServerDiscovered { generation: u64, result: Result<LoginMethods, String> },
+    EmailSent { generation: u64, result: Result<String, String> },
+    EmailVerified { generation: u64, result: Result<(), String> },
     #[default]
     None,
 }
