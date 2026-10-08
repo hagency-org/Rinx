@@ -97,7 +97,10 @@ def main():
         sock.bind(('127.0.0.1', 0))
         port = sock.getsockname()[1]
     app = PerformanceApp(args.output, port=port, size=(1000, 800), auto_login=False)
-    fixture = MatrixFixture()
+    # Leave a quiet long-poll interval after each sync response. A stream of
+    # responses every 150 ms continually resets the SDK's sync-indicator
+    # debounce, leaving a legitimate spinner active during an "idle" sample.
+    fixture = MatrixFixture(sync_delay=1.0)
     results = []
     try:
         app.launch(args.binary)
@@ -108,7 +111,8 @@ def main():
             results.append(app.measure('login-typing', app.type_sentence))
             app.login(fixture, 'alice')
             app.active('alice')
-            app.request('/k', c='Escape', wait=1)
+            app.click_id('account_switcher_button')
+            assert not any(w.get('t') == 'Account Settings' for w in app.snap()), 'Account menu did not close'
             time.sleep(3)
             results.append(app.measure('home-idle', lambda: time.sleep(5)))
             (app.root / 'home-widgets.json').write_text(json.dumps(app.snap(), indent=2))
@@ -146,6 +150,7 @@ def main():
                 # widget redraws separately from compositor animation presents.
                 draws = result['events'].get('event.draw', {}).get('count', 0)
                 assert draws < 30, f"Redraw loop: {result['name']} performed {draws} widget draws"
+                assert result['frames_painted'] < 30, f"Repaint loop: {result['name']} submitted {result['frames_painted']} frames"
 
 
 if __name__ == '__main__':
