@@ -1676,7 +1676,7 @@ impl Widget for RoomScreen {
             && actions.iter().all(|action| {
                 action.as_widget_action().is_some_and(|action| {
                     action.widget_uid == portal_list.widget_uid()
-                        && matches!(action.cast_ref(), PortalListAction::Scroll)
+                        && matches!(action.action.downcast_ref(), Some(PortalListAction::Scroll))
                 })
             })
         {
