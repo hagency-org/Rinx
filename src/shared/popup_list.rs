@@ -457,6 +457,12 @@ impl Widget for RobrixPopupNotification {
     fn draw_walk(&mut self, cx: &mut Cx2d, scope: &mut Scope, walk: Walk) -> DrawStep {
         let draw_list = self.draw_list.as_mut().unwrap();
         draw_list.begin_overlay_reuse(cx);
+        // Clear any previous notification without repainting an invisible
+        // fullscreen quad on every frame when there are no notifications.
+        if self.popups.is_empty() {
+            draw_list.end(cx);
+            return DrawStep::done();
+        }
         self.draw_bg.begin(cx, walk, self.layout);
         if !self.popups.is_empty() {
             cx.begin_turtle(walk, self.layout);

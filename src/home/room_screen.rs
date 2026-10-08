@@ -315,9 +315,12 @@ script_mod! {
                 sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
                 sdf.fill(with_highlight);
 
-                // draw the left vertical line
-                sdf.rect(0., 0., self.mentions_bar_width, self.rect_size.y);
-                sdf.fill(self.mentions_bar_color);
+                // Most messages have no marker. Skip its SDF and blend work
+                // across the whole message when the marker has zero width.
+                if self.mentions_bar_width > 0.0 {
+                    sdf.rect(0., 0., self.mentions_bar_width, self.rect_size.y);
+                    sdf.fill(self.mentions_bar_color);
+                }
 
                 return sdf.result;
             }
