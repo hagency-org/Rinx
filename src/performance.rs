@@ -1,5 +1,6 @@
-//! Opt-in Makepad timing capture for an isolated instrument run. No UI content,
-//! account identifiers or credentials are recorded.
+//! Opt-in Makepad timing capture for an isolated instrument run. Timing reports
+//! contain no UI content, account identifiers or credentials. Android's separate
+//! `rinx_perf_inspect` option also saves control geometry and a local app frame.
 use makepad_widgets::*;
 #[cfg(target_os = "android")]
 use makepad_widgets::makepad_platform::event::finger::TouchState;
@@ -141,6 +142,59 @@ fn output() -> Option<&'static PathBuf> {
     .as_ref()
 }
 
+// Android's desktop remote bridge is unavailable. Explicit instrument launches
+// can instead inspect visible control geometry and capture the app's own GPU
+// drawable. Inspection happens outside the measured interval, never per frame.
+#[cfg(target_os = "android")]
+#[derive(Default)]
+struct Inspection {
+    initialized: bool,
+    timer: Timer,
+}
+
+#[cfg(target_os = "android")]
+fn inspection_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("MAKEPAD_APP_CONFIG").ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("rinx_perf_inspect").and_then(|v| v.as_bool()))
+            .unwrap_or(false)
+    })
+}
+
+#[cfg(target_os = "android")]
+fn inspect(cx: &mut Cx, path: &PathBuf) {
+    if !inspection_enabled() { return; }
+    let widgets = cx.widget_snapshot_callback.map(|snapshot| snapshot(cx)).unwrap_or_default();
+    let visible: Vec<_> = widgets.iter().filter(|w| w.visible).collect();
+    let report = json!({
+        "visible_count": visible.len(),
+        "truncated": visible.len() > 2048,
+        "widgets": visible.iter().take(2048).map(|w| json!({
+            "id": w.id, "type": w.widget_type, "enabled": w.enabled,
+            "rect": [w.x, w.y, w.width, w.height],
+            // Only the message composer's length is needed to preserve drafts
+            // during typing checks. Never export message text or credentials.
+            "composer_characters": if w.id == "text_input"
+                && matches!(w.widget_type.as_str(), "TextInput" | "MessageTextInput") {
+                w.text.as_ref().map(|text| text.chars().count())
+            } else { None },
+        })).collect::<Vec<_>>(),
+        "windows": cx.windows.id_iter().map(|id| {
+            let geometry = &cx.windows[id].window_geom;
+            json!({"dpi": geometry.dpi_factor,
+                "size": [geometry.inner_size.x, geometry.inner_size.y]})
+        }).collect::<Vec<_>>(),
+    });
+    if let Err(error) = std::fs::write(path.with_extension("widgets.json"), serde_json::to_vec_pretty(&report).unwrap()) {
+        error!("Could not write instrument geometry: {error}");
+    }
+    // This separate, explicit option captures current UI contents locally.
+    // It is not part of the content-free performance report.
+    cx.capture_next_frame_to_file(path.with_extension("png"));
+}
+
 fn start(cx: &mut Cx) {
     let old_timer = cx.global::<Probe>().stop_timer;
     cx.stop_timer(old_timer);
@@ -187,10 +241,23 @@ fn stop(cx: &mut Cx, path: &PathBuf) {
     if let Err(error) = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()) {
         error!("Could not write performance capture: {error}");
     }
+    #[cfg(target_os = "android")]
+    inspect(cx, path);
 }
 
 pub fn begin(cx: &mut Cx, event: &Event) -> bool {
     let Some(path) = output() else { return false };
+    #[cfg(target_os = "android")]
+    if inspection_enabled() {
+        if !cx.global::<Inspection>().initialized {
+            let timer = cx.start_timeout(3.0);
+            *cx.global::<Inspection>() = Inspection { initialized: true, timer };
+        }
+        if cx.global::<Inspection>().timer.is_event(event).is_some() {
+            if !cx.global::<Probe>().active { inspect(cx, path); }
+            return true;
+        }
+    }
     if let Event::Custom(command) = event {
         if command == "rinx.perf.start" {
             start(cx);
