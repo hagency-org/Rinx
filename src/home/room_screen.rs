@@ -281,6 +281,7 @@ script_mod! {
         margin: 0.0
         flow: Down,
         cursor: MouseCursor.Default,
+        grab_key_focus: false,
         padding: 0.0,
         spacing: 0.0
 
@@ -1056,12 +1057,7 @@ impl Widget for ChatTimeline {
             _ => None,
         };
         if let Some(capture_overload) = capture_overload {
-            let mut list = self.view.portal_list(cx, ids!(list));
-            let at_end = list.is_at_end();
-            script_apply_eval!(cx, list, { capture_overload: #(capture_overload) });
-            // Applying PortalList properties re-arms auto-tail; a press while
-            // reading older messages must keep the viewport at that position.
-            list.set_tail_range(at_end);
+            self.view.portal_list(cx, ids!(list)).set_capture_overload(capture_overload);
         }
         self.view.handle_event(cx, event, scope);
     }
@@ -7209,7 +7205,7 @@ impl Widget for Message {
             Hit::FingerHoverIn(..) => {
                 self.animator_play(cx, ids!(bg_hover.on));
             }
-            Hit::FingerDown(_) => {
+            Hit::FingerDown(fe) if fe.device.has_hovers() => {
                 self.animator_play(cx, ids!(bg_hover.on));
             }
             Hit::FingerUp(fe) => {
@@ -7245,7 +7241,7 @@ impl Widget for Message {
             };
             let summary_hit = event.hits(cx, thread_root_summary.area());
             match summary_hit {
-                Hit::FingerDown(_) => {
+                Hit::FingerDown(fe) if fe.device.has_hovers() => {
                     self.animator_play(cx, ids!(bg_hover.on));
                     apply_hover(cx, self.appearance.hover);
                 }
@@ -7297,9 +7293,26 @@ impl Widget for Message {
 
         // Finally, handle any hits on the rest of the message body itself.
         let message_view_area = self.view.area();
-        let body_hit = handle_hover_hit(self, cx, event, message_view_area, claim_before, self.is_context_menu_open);
+        // A touch begins either a scroll or a long press. Keep its hit/capture,
+        // but defer the full-message press highlight until the long press is
+        // recognized. Otherwise a drag queues an expensive, stationary hover
+        // frame ahead of its first scrolling frame after the GPU was idle.
+        let body_hit = match event {
+            Event::TouchUpdate(update)
+                if update.touches.iter().any(|touch| touch.state == TouchState::Start) =>
+            {
+                event.hits(cx, message_view_area)
+            }
+            _ => handle_hover_hit(self, cx, event, message_view_area, claim_before, self.is_context_menu_open),
+        };
         match body_hit {
-            Hit::FingerDown(_) => {
+            Hit::FingerDown(fe) if fe.device.has_hovers() => {
+                cx.set_key_focus(message_view_area);
+            }
+            Hit::FingerUp(fe) if !fe.device.has_hovers() && fe.was_tap() => {
+                // A scroll should neither blur the composer nor redraw its
+                // focus state ahead of the first moving frame. A tap still
+                // focuses the message after gesture classification.
                 cx.set_key_focus(message_view_area);
             }
             Hit::FingerHoverIn(..) => {
@@ -7471,11 +7484,46 @@ impl Widget for Message {
             });
         }
 
-        self.view.draw_walk(cx, scope, walk)
+        // RoomScreen already paints RINX_PAGE behind the timeline. Avoid
+        // shading that same opaque color again over every ordinary message.
+        // Read the actual shader values so mentions, hover/highlight animations
+        // and theme overrides retain their background whenever it differs.
+        let show_bg = self.view.show_bg;
+        self.view.show_bg &= !self.background_matches_page(cx);
+        let previous_area = self.view.area();
+        let step = self.view.draw_walk(cx, scope, walk);
+        self.view.show_bg = show_bg;
+        // Switching between a drawn quad and a layout-only area must preserve
+        // pointer capture, including the touch that starts a hover highlight.
+        cx.update_area_refs(previous_area, self.view.area());
+        step
     }
 }
 
 impl Message {
+    fn background_matches_page(&self, cx: &mut Cx) -> bool {
+        let page = self.appearance.page;
+        if page.w != 1.0 {
+            return false;
+        }
+        let vars = &self.view.draw_bg.draw_vars;
+        let mut color = [f32::NAN; 4];
+        let mut marker = [f32::NAN; 4];
+        let mut marker_width = [f32::NAN];
+        let mut hover = [f32::NAN];
+        let mut highlight = [f32::NAN];
+        vars.get_instance(cx, id!(color), &mut color);
+        vars.get_instance(cx, id!(mentions_bar_color), &mut marker);
+        vars.get_instance(cx, id!(mentions_bar_width), &mut marker_width);
+        vars.get_instance(cx, id!(hover), &mut hover);
+        vars.get_instance(cx, id!(highlight), &mut highlight);
+        let page = [page.x, page.y, page.z, page.w];
+        color == page
+            && (marker_width[0] == 0.0 || marker == page)
+            && hover[0] == 0.0
+            && highlight[0] == 0.0
+    }
+
     fn replied_to_message_view(&mut self, cx: &mut Cx) -> CollapsiblePreviewRef {
         if let Some(reply) = &self.replied_to_message_view {
             return reply.clone();
