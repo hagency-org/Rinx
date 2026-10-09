@@ -10,12 +10,16 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import threading
 import time
 import urllib.parse
 import urllib.error
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from native_probe import NativeApp
+
+# Makepad's primary shortcut modifier: Cmd on Apple platforms, Ctrl elsewhere.
+PRIMARY_MODIFIER = 'cmd' if sys.platform == 'darwin' else 'ctrl'
 
 
 class MatrixFixture:
@@ -168,7 +172,7 @@ class App(NativeApp):
 
     def fill(self, widget, value):
         self.click_id(widget)
-        self.request('/k', c='KeyA', cmd=1, wait=0)
+        self.request('/k', c='KeyA', wait=0, **{PRIMARY_MODIFIER: 1})
         self.request('/t', t=value, wait=0)
         time.sleep(.1)
 

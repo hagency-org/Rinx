@@ -4,6 +4,12 @@
 The window is visible but unfocused: hidden macOS windows are throttled and
 cannot provide representative frame pacing. App mode uses a loopback Matrix
 fixture; chat mode takes the offline production-widget `chat_theme` example.
+
+On Linux the Wayland app_id is the executable's file name, so a copy of the
+binary under a distinct name can be routed by window rule to a headless
+compositor output (Hyprland: `hyprctl output create headless`), keeping the
+measured window off the desktop and its focus. Linux samples also report
+per-thread CPU time and event-loop wakeups from /proc.
 """
 import argparse
 import hashlib
@@ -12,11 +18,35 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import time
 from native_probe import NativeApp
 from native_multi_account import App, MatrixFixture
 
 SENTENCE = 'The quick brown fox types smoothly. 测试输入是否流畅。'
+
+
+def process_sample(pid):
+    """CPU seconds per thread, plus the UI (main) thread's voluntary sleeps.
+
+    Linux `ps -o time` has one-second resolution, too coarse for idle samples;
+    per-thread schedstat run time is in nanoseconds. Each voluntary context
+    switch of the main thread is one event-loop sleep, so the delta counts
+    event-loop wakeups.
+    """
+    if not sys.platform.startswith('linux'):
+        parts = subprocess.check_output(['ps', '-p', str(pid), '-o', 'time='], text=True).strip().split(':')
+        return {'cpu': sum(float(value) * 60 ** index for index, value in enumerate(reversed(parts)))}
+    threads = {}
+    for task in Path(f'/proc/{pid}/task').iterdir():
+        try:
+            name = (task / 'comm').read_text().strip()
+            threads[f'{name}:{task.name}'] = int((task / 'schedstat').read_text().split()[0]) / 1e9
+        except (OSError, ValueError, IndexError):
+            pass  # The thread exited while sampling.
+    status = Path(f'/proc/{pid}/status').read_text()
+    wakeups = next(int(line.split()[1]) for line in status.splitlines() if line.startswith('voluntary_ctxt_switches'))
+    return {'cpu': sum(threads.values()), 'threads': threads, 'ui_wakeups': wakeups}
 
 
 class PerformanceApp(App):
@@ -56,12 +86,10 @@ class PerformanceApp(App):
         self.report.unlink(missing_ok=True)
         self.request('/event', data='rinx.perf.start')
         time.sleep(.1)
-        def cpu_seconds():
-            parts = subprocess.check_output(['ps', '-p', str(self.process.pid), '-o', 'time='], text=True).strip().split(':')
-            return sum(float(value) * 60 ** index for index, value in enumerate(reversed(parts)))
-        cpu_start = cpu_seconds()
+        before = process_sample(self.process.pid)
         exercise()
-        cpu_used = cpu_seconds() - cpu_start
+        after = process_sample(self.process.pid)
+        cpu_used = after['cpu'] - before['cpu']
         self.request('/event', data='rinx.perf.stop')
         for _ in range(100):
             if self.report.exists():
@@ -76,6 +104,16 @@ class PerformanceApp(App):
                 return {'count': 0}
             return {'count': len(values), 'p50_ms': values[len(values)//2], 'p95_ms': values[min(len(values)-1, int(len(values)*.95))], 'max_ms': max(values), 'total_ms': sum(values)}
         summary = {'name': name, 'elapsed_ms': report['elapsed_ms'], 'process_cpu_seconds': cpu_used, 'frames_painted': report['frames_painted'], 'events': {key: stats(value) for key, value in report['events_and_phases_ms'].items()}}
+        if 'ui_wakeups' in after:
+            summary['ui_thread_wakeups'] = after['ui_wakeups'] - before['ui_wakeups']
+            used = {thread: (cpu - before['threads'].get(thread, 0)) * 1000 for thread, cpu in after['threads'].items()}
+            summary['busiest_threads_ms'] = dict(sorted(used.items(), key=lambda item: -item[1])[:5])
+        # The monitor ring holds the most recent presented frames: paint-to-paint
+        # gaps and per-channel main-thread (and GPU) microseconds.
+        frames = report['recent_frames']
+        summary['frame_gap_ms'] = stats([frame['gap_ms'] for frame in frames])
+        summary['frame_channels_ms'] = {channel: sum(frame['channel_us'][index] for frame in frames) / 1000
+                                        for index, channel in enumerate(report['channels']) if index < len(frames[0]['channel_us'])} if frames else {}
         print(json.dumps(summary), flush=True)
         return summary
 
