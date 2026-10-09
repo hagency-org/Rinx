@@ -273,8 +273,9 @@ script_mod! {
         }
     }
 
-    // The view used for each text-based message event in a room's timeline.
-    mod.widgets.Message = set_type_default() do #(Message::register_widget(vm)) {
+    // Keep the Rust type default free of child trees. A mobile message should
+    // construct its own body once, without first constructing the desktop body.
+    mod.widgets.MessageBase = set_type_default() do #(Message::register_widget(vm)) {
 
         width: Fill,
         height: Fit,
@@ -358,6 +359,9 @@ script_mod! {
             }
         }
 
+    }
+
+    mod.widgets.Message = mod.widgets.MessageBase {
         // A preview of the earlier message that this message was in reply to.
         replied_to_message := mod.widgets.RepliedToMessage {
             flow: Down
@@ -484,7 +488,7 @@ script_mod! {
         }
         thread_root_summary := mod.widgets.ThreadRootSummary {}
     }
-    mod.widgets.MobileMessage = mod.widgets.Message {
+    mod.widgets.MobileMessage = mod.widgets.MessageBase {
         mobile_bubble: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -494,7 +498,7 @@ script_mod! {
             View {width: Fill height: 1}
         }
     }
-    mod.widgets.MobileOwnMessage = mod.widgets.Message {
+    mod.widgets.MobileOwnMessage = mod.widgets.MessageBase {
         mobile_bubble: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -543,7 +547,7 @@ script_mod! {
         }
         thread_root_summary := mod.widgets.ThreadRootSummary {}
     }
-    mod.widgets.MobileImageMessage = mod.widgets.Message {
+    mod.widgets.MobileImageMessage = mod.widgets.MessageBase {
         mobile_media: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -553,7 +557,7 @@ script_mod! {
             View {width: Fill height: 1}
         }
     }
-    mod.widgets.MobileOwnImageMessage = mod.widgets.Message {
+    mod.widgets.MobileOwnImageMessage = mod.widgets.MessageBase {
         mobile_media: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {

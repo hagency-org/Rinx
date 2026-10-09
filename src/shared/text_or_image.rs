@@ -36,6 +36,7 @@ script_mod! {
             image := Image {
                 width: Fill, height: Fit,
                 fit: ImageFit.Smallest,
+                downscale_to_drawn_size: true,
             }
         }
     }
