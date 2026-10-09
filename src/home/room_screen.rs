@@ -418,7 +418,7 @@ script_mod! {
                     agent_badge := mod.widgets.AgentBadge {}
                 }
 
-                message := HtmlOrPlaintext { selectable: true }
+                message := HtmlOrPlaintext { selectable: true touch_selectable: false }
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
@@ -463,6 +463,7 @@ script_mod! {
             draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
             message := HtmlOrPlaintext {
                 selectable: true
+                touch_selectable: false
                 plaintext_view +: {pt_label +: {draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE}}}}
                 html_view +: {html +: {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE font_color: mod.widgets.RINX_INK}}
             }
@@ -526,7 +527,7 @@ script_mod! {
             width: Fill height: Fit flow: Down
             caption_view := View {
                 visible: false width: Fill height: Fit margin: Inset{bottom: 5}
-                caption := HtmlOrPlaintext { selectable: true }
+                caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
             }
             image := TextOrImage {
                 image_view +: {image +: {height: Fit{max: FitBound.Abs(280.0)}}}
@@ -596,7 +597,7 @@ script_mod! {
                 padding: 12
                 draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
 
-                message := HtmlOrPlaintext { selectable: true }
+                message := HtmlOrPlaintext { selectable: true touch_selectable: false }
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
@@ -635,7 +636,7 @@ script_mod! {
                         visible: false,
                         width: Fill, height: Fit,
                         margin: Inset{ bottom: 5.0 }
-                        caption := HtmlOrPlaintext { selectable: true }
+                        caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
                     }
                     image := TextOrImage {
                         image_view +: { image +: {
@@ -671,7 +672,7 @@ script_mod! {
                         visible: false,
                         width: Fill, height: Fit,
                         margin: Inset{ bottom: 5.0 }
-                        caption := HtmlOrPlaintext { selectable: true }
+                        caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
                     }
                     image := TextOrImage {
                         image_view +: { image +: {

@@ -823,6 +823,8 @@ pub struct HtmlOrPlaintext {
     #[deref] view: View,
     /// Only full chat bodies opt in; previews remain non-interactive labels.
     #[live] selectable: bool,
+    /// Chat gestures scroll; its owner handles long-press message actions.
+    #[live(true)] touch_selectable: bool,
     #[rust] mouse_selection: Option<MessageSelection>,
 }
 
@@ -845,9 +847,13 @@ impl Widget for HtmlOrPlaintext {
         // One selection controller handles movement, including drags that began
         // over an inline link. Let children receive events, but don't also let
         // TextFlow move its cursor (or collapse a double-click selection).
-        let selecting = self.selectable && self.mouse_selection.is_some()
-            && matches!(event, Event::MouseMove(_));
-        if selecting {
+        // A chat touch must not start a transient TextFlow selection (and
+        // repaint/steal focus) before PortalList recognizes the scroll. Inline
+        // links still receive the event; only native text selection is gated.
+        let suppress_flow_selection = self.selectable
+            && ((!self.touch_selectable && matches!(event, Event::TouchUpdate(_)))
+                || (self.mouse_selection.is_some() && matches!(event, Event::MouseMove(_))));
+        if suppress_flow_selection {
             self.with_flow(cx, |flow, _| flow.selectable = false);
         }
         if matches!(event, Event::MouseUp(_))
@@ -864,7 +870,7 @@ impl Widget for HtmlOrPlaintext {
         } else {
             self.view.handle_event(cx, event, scope);
         }
-        if selecting {
+        if suppress_flow_selection {
             self.with_flow(cx, |flow, _| flow.selectable = true);
         }
         if !self.selectable { return; }
