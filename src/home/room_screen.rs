@@ -273,14 +273,16 @@ script_mod! {
         }
     }
 
-    // The view used for each text-based message event in a room's timeline.
-    mod.widgets.Message = set_type_default() do #(Message::register_widget(vm)) {
+    // Keep the Rust type default free of child trees. A mobile message should
+    // construct its own body once, without first constructing the desktop body.
+    mod.widgets.MessageBase = set_type_default() do #(Message::register_widget(vm)) {
 
         width: Fill,
         height: Fit,
         margin: 0.0
         flow: Down,
         cursor: MouseCursor.Default,
+        grab_key_focus: false,
         padding: 0.0,
         spacing: 0.0
 
@@ -315,9 +317,12 @@ script_mod! {
                 sdf.rect(0., 0., self.rect_size.x, self.rect_size.y);
                 sdf.fill(with_highlight);
 
-                // draw the left vertical line
-                sdf.rect(0., 0., self.mentions_bar_width, self.rect_size.y);
-                sdf.fill(self.mentions_bar_color);
+                // Most messages have no marker. Skip its SDF and blend work
+                // across the whole message when the marker has zero width.
+                if self.mentions_bar_width > 0.0 {
+                    sdf.rect(0., 0., self.mentions_bar_width, self.rect_size.y);
+                    sdf.fill(self.mentions_bar_color);
+                }
 
                 return sdf.result;
             }
@@ -354,6 +359,9 @@ script_mod! {
             }
         }
 
+    }
+
+    mod.widgets.Message = mod.widgets.MessageBase {
         // A preview of the earlier message that this message was in reply to.
         replied_to_message := mod.widgets.RepliedToMessage {
             flow: Down
@@ -414,7 +422,7 @@ script_mod! {
                     agent_badge := mod.widgets.AgentBadge {}
                 }
 
-                message := HtmlOrPlaintext { selectable: true }
+                message := HtmlOrPlaintext { selectable: true touch_selectable: false }
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
@@ -459,6 +467,7 @@ script_mod! {
             draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
             message := HtmlOrPlaintext {
                 selectable: true
+                touch_selectable: false
                 plaintext_view +: {pt_label +: {draw_text +: {color: mod.widgets.RINX_INK text_style: theme.font_regular {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE}}}}
                 html_view +: {html +: {font_size: mod.widgets.MOBILE_MESSAGE_FONT_SIZE font_color: mod.widgets.RINX_INK}}
             }
@@ -479,7 +488,7 @@ script_mod! {
         }
         thread_root_summary := mod.widgets.ThreadRootSummary {}
     }
-    mod.widgets.MobileMessage = mod.widgets.Message {
+    mod.widgets.MobileMessage = mod.widgets.MessageBase {
         mobile_bubble: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -489,7 +498,7 @@ script_mod! {
             View {width: Fill height: 1}
         }
     }
-    mod.widgets.MobileOwnMessage = mod.widgets.Message {
+    mod.widgets.MobileOwnMessage = mod.widgets.MessageBase {
         mobile_bubble: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -522,7 +531,7 @@ script_mod! {
             width: Fill height: Fit flow: Down
             caption_view := View {
                 visible: false width: Fill height: Fit margin: Inset{bottom: 5}
-                caption := HtmlOrPlaintext { selectable: true }
+                caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
             }
             image := TextOrImage {
                 image_view +: {image +: {height: Fit{max: FitBound.Abs(280.0)}}}
@@ -538,7 +547,7 @@ script_mod! {
         }
         thread_root_summary := mod.widgets.ThreadRootSummary {}
     }
-    mod.widgets.MobileImageMessage = mod.widgets.Message {
+    mod.widgets.MobileImageMessage = mod.widgets.MessageBase {
         mobile_media: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -548,7 +557,7 @@ script_mod! {
             View {width: Fill height: 1}
         }
     }
-    mod.widgets.MobileOwnImageMessage = mod.widgets.Message {
+    mod.widgets.MobileOwnImageMessage = mod.widgets.MessageBase {
         mobile_media: true
         draw_bg +: {color: mod.widgets.RINX_PAGE mentions_bar_color: mod.widgets.RINX_PAGE mentions_bar_width: 0}
         body := View {
@@ -592,7 +601,7 @@ script_mod! {
                 padding: 12
                 draw_bg +: {color: mod.widgets.RINX_INCOMING border_radius: mod.widgets.RINX_RADIUS_SM border_size: 0}
 
-                message := HtmlOrPlaintext { selectable: true }
+                message := HtmlOrPlaintext { selectable: true touch_selectable: false }
                 mini_app_card := mod.widgets.MiniAppCard {}
                 forward_card := mod.widgets.ForwardCard {}
                 agent_approval_card := mod.widgets.AgentApprovalCard {}
@@ -631,7 +640,7 @@ script_mod! {
                         visible: false,
                         width: Fill, height: Fit,
                         margin: Inset{ bottom: 5.0 }
-                        caption := HtmlOrPlaintext { selectable: true }
+                        caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
                     }
                     image := TextOrImage {
                         image_view +: { image +: {
@@ -667,7 +676,7 @@ script_mod! {
                         visible: false,
                         width: Fill, height: Fit,
                         margin: Inset{ bottom: 5.0 }
-                        caption := HtmlOrPlaintext { selectable: true }
+                        caption := HtmlOrPlaintext { selectable: true touch_selectable: false }
                     }
                     image := TextOrImage {
                         image_view +: { image +: {
@@ -1053,12 +1062,7 @@ impl Widget for ChatTimeline {
             _ => None,
         };
         if let Some(capture_overload) = capture_overload {
-            let mut list = self.view.portal_list(cx, ids!(list));
-            let at_end = list.is_at_end();
-            script_apply_eval!(cx, list, { capture_overload: #(capture_overload) });
-            // Applying PortalList properties re-arms auto-tail; a press while
-            // reading older messages must keep the viewport at that position.
-            list.set_tail_range(at_end);
+            self.view.portal_list(cx, ids!(list)).set_capture_overload(capture_overload);
         }
         self.view.handle_event(cx, event, scope);
     }
@@ -1665,6 +1669,22 @@ impl Widget for RoomScreen {
                     self.history_jump_started = false;
                 }
             }
+        }
+
+        // This list's Scroll notification is consumed above (read receipts and
+        // jump-to-bottom visibility). Its children do not consume it. Avoid
+        // walking every retained message/card again for this once-per-frame
+        // notification. Mixed batches and all other actions still reach them.
+        if let Event::Actions(actions) = event
+            && !actions.is_empty()
+            && actions.iter().all(|action| {
+                action.as_widget_action().is_some_and(|action| {
+                    action.widget_uid == portal_list.widget_uid()
+                        && matches!(action.action.downcast_ref(), Some(PortalListAction::Scroll))
+                })
+            })
+        {
+            return;
         }
 
         // Forward the event to the inner timeline view, but capture any actions it produces
@@ -7139,6 +7159,13 @@ impl Widget for Message {
         }
 
         let Some(d) = self.details.as_ref() else { return };
+        // Only the animator above and child animations consume frame ticks.
+        // Keep delivering them to children, including retained offscreen rows,
+        // without looking up reply/thread hit targets on every scroll frame.
+        if matches!(event, Event::NextFrame(_)) {
+            self.view.handle_event(cx, event, scope);
+            return;
+        }
         let room_screen_widget_uid = d.room_screen_widget_uid;
         let thread_root_event_id = d.thread_root_event_id.clone();
 
@@ -7188,7 +7215,7 @@ impl Widget for Message {
             Hit::FingerHoverIn(..) => {
                 self.animator_play(cx, ids!(bg_hover.on));
             }
-            Hit::FingerDown(_) => {
+            Hit::FingerDown(fe) if fe.device.has_hovers() => {
                 self.animator_play(cx, ids!(bg_hover.on));
             }
             Hit::FingerUp(fe) => {
@@ -7224,7 +7251,7 @@ impl Widget for Message {
             };
             let summary_hit = event.hits(cx, thread_root_summary.area());
             match summary_hit {
-                Hit::FingerDown(_) => {
+                Hit::FingerDown(fe) if fe.device.has_hovers() => {
                     self.animator_play(cx, ids!(bg_hover.on));
                     apply_hover(cx, self.appearance.hover);
                 }
@@ -7276,9 +7303,26 @@ impl Widget for Message {
 
         // Finally, handle any hits on the rest of the message body itself.
         let message_view_area = self.view.area();
-        let body_hit = handle_hover_hit(self, cx, event, message_view_area, claim_before, self.is_context_menu_open);
+        // A touch begins either a scroll or a long press. Keep its hit/capture,
+        // but defer the full-message press highlight until the long press is
+        // recognized. Otherwise a drag queues an expensive, stationary hover
+        // frame ahead of its first scrolling frame after the GPU was idle.
+        let body_hit = match event {
+            Event::TouchUpdate(update)
+                if update.touches.iter().any(|touch| touch.state == TouchState::Start) =>
+            {
+                event.hits(cx, message_view_area)
+            }
+            _ => handle_hover_hit(self, cx, event, message_view_area, claim_before, self.is_context_menu_open),
+        };
         match body_hit {
-            Hit::FingerDown(_) => {
+            Hit::FingerDown(fe) if fe.device.has_hovers() => {
+                cx.set_key_focus(message_view_area);
+            }
+            Hit::FingerUp(fe) if !fe.device.has_hovers() && fe.was_tap() => {
+                // A scroll should neither blur the composer nor redraw its
+                // focus state ahead of the first moving frame. A tap still
+                // focuses the message after gesture classification.
                 cx.set_key_focus(message_view_area);
             }
             Hit::FingerHoverIn(..) => {
@@ -7450,11 +7494,46 @@ impl Widget for Message {
             });
         }
 
-        self.view.draw_walk(cx, scope, walk)
+        // RoomScreen already paints RINX_PAGE behind the timeline. Avoid
+        // shading that same opaque color again over every ordinary message.
+        // Read the actual shader values so mentions, hover/highlight animations
+        // and theme overrides retain their background whenever it differs.
+        let show_bg = self.view.show_bg;
+        self.view.show_bg &= !self.background_matches_page(cx);
+        let previous_area = self.view.area();
+        let step = self.view.draw_walk(cx, scope, walk);
+        self.view.show_bg = show_bg;
+        // Switching between a drawn quad and a layout-only area must preserve
+        // pointer capture, including the touch that starts a hover highlight.
+        cx.update_area_refs(previous_area, self.view.area());
+        step
     }
 }
 
 impl Message {
+    fn background_matches_page(&self, cx: &mut Cx) -> bool {
+        let page = self.appearance.page;
+        if page.w != 1.0 {
+            return false;
+        }
+        let vars = &self.view.draw_bg.draw_vars;
+        let mut color = [f32::NAN; 4];
+        let mut marker = [f32::NAN; 4];
+        let mut marker_width = [f32::NAN];
+        let mut hover = [f32::NAN];
+        let mut highlight = [f32::NAN];
+        vars.get_instance(cx, id!(color), &mut color);
+        vars.get_instance(cx, id!(mentions_bar_color), &mut marker);
+        vars.get_instance(cx, id!(mentions_bar_width), &mut marker_width);
+        vars.get_instance(cx, id!(hover), &mut hover);
+        vars.get_instance(cx, id!(highlight), &mut highlight);
+        let page = [page.x, page.y, page.z, page.w];
+        color == page
+            && (marker_width[0] == 0.0 || marker == page)
+            && hover[0] == 0.0
+            && highlight[0] == 0.0
+    }
+
     fn replied_to_message_view(&mut self, cx: &mut Cx) -> CollapsiblePreviewRef {
         if let Some(reply) = &self.replied_to_message_view {
             return reply.clone();

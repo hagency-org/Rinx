@@ -845,6 +845,8 @@ pub struct HtmlOrPlaintext {
     #[deref] view: View,
     /// Only full chat bodies opt in; previews remain non-interactive labels.
     #[live] selectable: bool,
+    /// Ordinary chat touch gestures scroll; the selection controller owns long presses.
+    #[live(true)] touch_selectable: bool,
     #[rust] mouse_selection: Option<MessageSelection>,
     #[live] draw_caret: DrawColor,
     #[live] draw_start_handle: DrawQuad,
@@ -900,10 +902,13 @@ impl Widget for HtmlOrPlaintext {
         // One selection controller handles movement, including drags that began
         // over an inline link. Let children receive events, but don't also let
         // TextFlow move its cursor (or collapse a double-click selection).
-        let selecting = self.selectable && ((self.mouse_selection.is_some()
-            && matches!(event, Event::MouseMove(_)))
-            || matches!(event, Event::TouchUpdate(update) if update.touches.iter().any(|t| t.state == TouchState::Move)));
-        if selecting {
+        // Delay native touch selection until the long-press/handle controller
+        // claims it. Ordinary chat drags stay available to PortalList.
+        let suppress_flow_selection = self.selectable
+            && (matches!(event, Event::TouchUpdate(update)
+                    if !self.touch_selectable || update.touches.iter().any(|t| t.state == TouchState::Move))
+                || (self.mouse_selection.is_some() && matches!(event, Event::MouseMove(_))));
+        if suppress_flow_selection {
             self.with_flow(cx, |flow, _| flow.selectable = false);
         }
         if (matches!(event, Event::MouseUp(_))
@@ -921,7 +926,7 @@ impl Widget for HtmlOrPlaintext {
         } else {
             self.view.handle_event(cx, event, scope);
         }
-        if selecting {
+        if suppress_flow_selection {
             self.with_flow(cx, |flow, _| flow.selectable = true);
         }
         if !self.selectable { return; }

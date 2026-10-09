@@ -1,5 +1,8 @@
-//! Opt-in Makepad timing capture for an isolated instrument run. No UI content,
-//! account identifiers or credentials are recorded.
+//! Opt-in Makepad timing capture for an isolated instrument run. Timing reports
+//! contain no UI content, account identifiers or credentials. Android's separate
+//! `rinx_perf_inspect` option also saves control geometry and a local app frame.
+//! `rinx_perf_trace` exports coarse Android trace sections without enabling the
+//! per-widget monitor, so system traces can diagnose normal frame pacing.
 use makepad_widgets::*;
 #[cfg(target_os = "android")]
 use makepad_widgets::makepad_platform::event::finger::TouchState;
@@ -33,8 +36,7 @@ impl Drop for TraceSpan {
 
 pub fn trace_span(cx: &mut Cx, name: &'static std::ffi::CStr) -> TraceSpan {
     #[cfg(target_os = "android")]
-    let enabled =
-        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    let enabled = trace_enabled(cx);
     #[cfg(target_os = "android")]
     if enabled {
         unsafe { ATrace_beginSection(name.as_ptr()) };
@@ -84,8 +86,7 @@ impl Drop for EventTrace {
 
 pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
     #[cfg(target_os = "android")]
-    let enabled =
-        output().is_some() && cx.global::<Probe>().active && unsafe { ATrace_isEnabled() };
+    let enabled = trace_enabled(cx);
     #[cfg(target_os = "android")]
     if enabled {
         let name = match event {
@@ -95,7 +96,15 @@ pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
             Event::Signal => c"rinx.signal",
             Event::Timer(_) => c"rinx.timer",
             Event::TextInput(_) => c"rinx.text_input",
-            Event::TouchUpdate(_) => c"rinx.touch",
+            Event::TouchUpdate(update) => {
+                if update.touches.iter().any(|touch| touch.state == TouchState::Start) {
+                    c"rinx.touch.down"
+                } else if update.touches.iter().any(|touch| touch.state == TouchState::Stop) {
+                    c"rinx.touch.up"
+                } else {
+                    c"rinx.touch.move"
+                }
+            }
             Event::KeyDown(_) | Event::KeyUp(_) => c"rinx.key",
             _ => c"rinx.other",
         };
@@ -111,6 +120,19 @@ pub fn trace_event(cx: &mut Cx, event: &Event) -> EventTrace {
         enabled,
         _same_thread: std::marker::PhantomData,
     }
+}
+
+#[cfg(target_os = "android")]
+fn trace_enabled(cx: &mut Cx) -> bool {
+    static TRACE_ONLY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let trace_only = *TRACE_ONLY.get_or_init(|| {
+        std::env::var("MAKEPAD_APP_CONFIG").ok()
+            .and_then(|config| serde_json::from_str::<serde_json::Value>(&config).ok())
+            .and_then(|config| config.get("rinx_perf_trace").and_then(|value| value.as_bool()))
+            .unwrap_or(false)
+    });
+    (trace_only || (output().is_some() && cx.global::<Probe>().active))
+        && unsafe { ATrace_isEnabled() }
 }
 
 #[derive(Default)]
@@ -139,6 +161,90 @@ fn output() -> Option<&'static PathBuf> {
         None
     })
     .as_ref()
+}
+
+// Android's desktop remote bridge is unavailable. Explicit instrument launches
+// can instead inspect visible control geometry and capture the app's own GPU
+// drawable. Inspection happens outside the measured interval, never per frame.
+#[cfg(target_os = "android")]
+#[derive(Default)]
+struct Inspection {
+    initialized: bool,
+    timer: Timer,
+}
+
+#[cfg(target_os = "android")]
+fn inspection_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var("MAKEPAD_APP_CONFIG").ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .and_then(|v| v.get("rinx_perf_inspect").and_then(|v| v.as_bool()))
+            .unwrap_or(false)
+    })
+}
+
+#[cfg(target_os = "android")]
+fn inspect(cx: &mut Cx, path: &PathBuf) {
+    if !inspection_enabled() { return; }
+    // Shader indices in gpu.draws can otherwise identify only generic quads.
+    // Save their generated programs alongside this explicit local inspection.
+    let shaders: Vec<_> = cx.draw_shaders.shaders.iter().enumerate().filter_map(|(index, shader)| {
+        let program = cx.draw_shaders.os_shaders.get(shader.os_shader_id?)?;
+        Some(json!({"index": index, "vertex": program.in_vertex, "fragment": program.in_pixel}))
+    }).collect();
+    if let Err(error) = std::fs::write(path.with_extension("shaders.json"), serde_json::to_vec_pretty(&shaders).unwrap()) {
+        error!("Could not write instrument shader map: {error}");
+    }
+    let mut draws = Vec::new();
+    for id in cx.draw_lists.id_iter() {
+        let list = &cx.draw_lists[id];
+        for order in 0..list.draw_item_order_len() {
+            let Some(item_id) = list.draw_item_id_at_order_index(order) else { continue };
+            let item = &list.draw_items[item_id];
+            let Some(call) = item.kind.draw_call() else { continue };
+            let shader = &cx.draw_shaders.shaders[call.draw_shader_id.index];
+            let Some(program) = shader.os_shader_id.and_then(|i| cx.draw_shaders.os_shaders.get(i)) else { continue };
+            if !program.in_pixel.contains("return vec4(0.0, 0.0, 0.0, 0.0);") { continue; }
+            let Some(instances) = &item.instances else { continue };
+            let slots = shader.mapping.instances.total_slots;
+            if slots == 0 { continue; }
+            let geometry: Vec<_> = instances.chunks_exact(slots).map(|instance| {
+                shader.mapping.instances.inputs.iter().filter(|input| {
+                    matches!(input.id, live_id!(rect_pos) | live_id!(rect_size) | live_id!(draw_clip))
+                }).map(|input| (input.id.to_string(), instance[input.offset..input.offset+input.slots].to_vec())).collect::<BTreeMap<_,_>>()
+            }).collect();
+            draws.push(json!({"list": format!("{:?}", id), "debug_id": list.debug_id.to_string(), "shader": call.draw_shader_id.index, "geometry": geometry}));
+        }
+    }
+    let _ = std::fs::write(path.with_extension("transparent.json"), serde_json::to_vec_pretty(&draws).unwrap());
+    let widgets = cx.widget_snapshot_callback.map(|snapshot| snapshot(cx)).unwrap_or_default();
+    let visible: Vec<_> = widgets.iter().filter(|w| w.visible).collect();
+    let report = json!({
+        "visible_count": visible.len(),
+        "truncated": visible.len() > 2048,
+        "widgets": visible.iter().take(2048).map(|w| json!({
+            "id": w.id, "type": w.widget_type, "enabled": w.enabled,
+            "rect": [w.x, w.y, w.width, w.height],
+            // Only the message composer's length is needed to preserve drafts
+            // during typing checks. Never export message text or credentials.
+            "composer_characters": if w.id == "text_input"
+                && matches!(w.widget_type.as_str(), "TextInput" | "MessageTextInput") {
+                w.text.as_ref().map(|text| text.chars().count())
+            } else { None },
+        })).collect::<Vec<_>>(),
+        "windows": cx.windows.id_iter().map(|id| {
+            let geometry = &cx.windows[id].window_geom;
+            json!({"dpi": geometry.dpi_factor,
+                "size": [geometry.inner_size.x, geometry.inner_size.y]})
+        }).collect::<Vec<_>>(),
+    });
+    if let Err(error) = std::fs::write(path.with_extension("widgets.json"), serde_json::to_vec_pretty(&report).unwrap()) {
+        error!("Could not write instrument geometry: {error}");
+    }
+    // This separate, explicit option captures current UI contents locally.
+    // It is not part of the content-free performance report.
+    cx.capture_next_frame_to_file(path.with_extension("png"));
 }
 
 fn start(cx: &mut Cx) {
@@ -170,6 +276,15 @@ fn stop(cx: &mut Cx, path: &PathBuf) {
         "elapsed_ms": probe.started.map(|s| s.elapsed().as_secs_f64() * 1000.0),
         "events_and_phases_ms": probe.samples,
         "frames_painted": frame_count,
+        "work": cx.perf_monitor.work().iter().map(|sample| json!({
+            "operation": sample.operation,
+            "component": sample.component.to_string(),
+            "calls": sample.calls,
+            "total_ms": sample.total_ns as f64 / 1_000_000.0,
+            "self_ms": sample.self_ns as f64 / 1_000_000.0,
+            "max_ms": sample.max_ns as f64 / 1_000_000.0,
+        })).collect::<Vec<_>>(),
+        "work_overflow": cx.perf_monitor.work_overflow(),
         "channels": channels,
         "recent_frames": frames.into_iter().filter(|f| f.gap_ms > 0.0).map(|f| json!({
             "gap_ms": f.gap_ms, "channel_us": f.channel_us,
@@ -178,10 +293,23 @@ fn stop(cx: &mut Cx, path: &PathBuf) {
     if let Err(error) = std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()) {
         error!("Could not write performance capture: {error}");
     }
+    #[cfg(target_os = "android")]
+    inspect(cx, path);
 }
 
 pub fn begin(cx: &mut Cx, event: &Event) -> bool {
     let Some(path) = output() else { return false };
+    #[cfg(target_os = "android")]
+    if inspection_enabled() {
+        if !cx.global::<Inspection>().initialized {
+            let timer = cx.start_timeout(3.0);
+            *cx.global::<Inspection>() = Inspection { initialized: true, timer };
+        }
+        if cx.global::<Inspection>().timer.is_event(event).is_some() {
+            if !cx.global::<Probe>().active { inspect(cx, path); }
+            return true;
+        }
+    }
     if let Event::Custom(command) = event {
         if command == "rinx.perf.start" {
             start(cx);
