@@ -88,6 +88,9 @@ impl MatchEvent for App {
         if self.ui.button(cx, ids!(inspect)).clicked(actions) {
             let response = std::rc::Rc::new(std::cell::RefCell::new(None));
             self.ui.handle_event(cx, &Event::TextCopy(TextClipboardEvent {response: response.clone()}), &mut Scope::empty());
+            let handles = self.ui.html_or_plaintext(cx, ids!(plain)).borrow()
+                .and_then(|body| body.selection_handle_rects(cx))
+                .map(|(start, end)| [[start.pos.x, start.pos.y, start.size.x, start.size.y], [end.pos.x, end.pos.y, end.size.x, end.size.y]]);
             let state = serde_json::json!({
                 "ink": rinx::theme::argb(rinx::theme::snapshot(cx).ink),
                 "selection_color": rinx::theme::argb(rinx::theme::snapshot(cx).selected),
@@ -96,6 +99,7 @@ impl MatchEvent for App {
                 "wrapped": self.ui.html_or_plaintext(cx, ids!(wrapped)).selected_text(cx),
                 "copy": *response.borrow(),
                 "link_clicks": self.link_clicks,
+                "handles": handles,
             });
             self.ui.label(cx, ids!(result)).set_text(cx, &state.to_string());
         }

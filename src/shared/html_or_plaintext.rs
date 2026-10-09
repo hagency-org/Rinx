@@ -1,7 +1,8 @@
 //! A `HtmlOrPlaintext` view can display either plaintext or rich HTML content.
 
 
-use makepad_widgets::*;
+use makepad_widgets::{makepad_platform::event::finger::TouchState, *};
+use unicode_segmentation::UnicodeSegmentation;
 use matrix_sdk::{ruma::{matrix_uri::MatrixId, MatrixToUri, MatrixUri, RoomOrAliasId}, OwnedServerName};
 
 use crate::{avatar_cache::{self, AvatarCacheEntry}, profile::user_profile_cache, room_preview_cache::{self, CachedRoomPreview}, sliding_sync::current_user_id, utils};
@@ -183,6 +184,27 @@ script_mod! {
     mod.widgets.HtmlOrPlaintext = #(HtmlOrPlaintext::register_widget(vm)) {
         width: Fill, height: Fit, // see above comment
         flow: Overlay
+        draw_caret +: { color: mod.widgets.RINX_ACCENT }
+        draw_start_handle +: {
+            color: uniform(mod.widgets.RINX_ACCENT)
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                sdf.rect(15.0, 8.0, 2.0, self.rect_size.y - 8.0)
+                sdf.circle(16.0, 8.0, 5.0)
+                sdf.fill(self.color)
+                return sdf.result
+            }
+        }
+        draw_end_handle +: {
+            color: uniform(mod.widgets.RINX_ACCENT)
+            pixel: fn() {
+                let sdf = Sdf2d.viewport(self.pos * self.rect_size)
+                sdf.rect(15.0, 0.0, 2.0, self.rect_size.y - 8.0)
+                sdf.circle(16.0, self.rect_size.y - 8.0, 5.0)
+                sdf.fill(self.color)
+                return sdf.result
+            }
+        }
 
         plaintext_view := View {
             visible: true,
@@ -823,9 +845,31 @@ pub struct HtmlOrPlaintext {
     #[deref] view: View,
     /// Only full chat bodies opt in; previews remain non-interactive labels.
     #[live] selectable: bool,
-    /// Chat gestures scroll; its owner handles long-press message actions.
+    /// Ordinary chat touch gestures scroll; the selection controller owns long presses.
     #[live(true)] touch_selectable: bool,
     #[rust] mouse_selection: Option<MessageSelection>,
+    #[live] draw_caret: DrawColor,
+    #[live] draw_start_handle: DrawQuad,
+    #[live] draw_end_handle: DrawQuad,
+    #[rust] handles_visible: bool,
+    #[rust] handle_drag: Option<SelectionHandleDrag>,
+    #[rust] touch_start: Option<(u64, DVec2)>,
+    #[rust] touch_selected: bool,
+}
+
+struct SelectionHandleDrag {
+    anchor: usize,
+    pointer_origin: DVec2,
+    text_origin: DVec2,
+}
+
+/// Word boundaries preserve grapheme clusters, including CJK and joined emoji.
+fn selection_word(text: &str, index: usize) -> (usize, usize) {
+    let index = index.min(text.len().saturating_sub(1));
+    text.split_word_bound_indices()
+        .find(|(start, word)| *start <= index && index < start + word.len())
+        .map(|(start, word)| (start, start + word.len()))
+        .unwrap_or((0, 0))
 }
 
 struct MessageSelection {
@@ -833,12 +877,23 @@ struct MessageSelection {
     anchor: usize,
     cursor: usize,
     dragging: bool,
-    whole_message: bool,
+    preserve_click_selection: bool,
 }
 
 impl Widget for HtmlOrPlaintext {
     fn handle_event(&mut self, cx: &mut Cx, event: &Event, scope: &mut Scope) {
+        if self.selectable && self.handle_selection_handles(cx, event) { return; }
+        if self.selectable && self.handle_selection_keys(cx, event) { return; }
         let claim_before = event.pointer_claimed_area();
+        let previous_anchor = if matches!(event, Event::MouseDown(e) if e.modifiers.shift) {
+            self.with_flow(cx, |flow, _| flow.selection().0)
+        } else { None };
+        if let Event::LongPress(e) = event {
+            if self.touch_start.is_some_and(|(uid, start)| uid == e.uid && (start - e.abs).length() < 8.0)
+                && self.select_word_at(cx, e.abs) {
+                return;
+            }
+        }
         if let Event::MouseUp(e) = event {
             if e.button.is_primary() {
                 self.update_mouse_selection(cx, e.abs);
@@ -847,17 +902,18 @@ impl Widget for HtmlOrPlaintext {
         // One selection controller handles movement, including drags that began
         // over an inline link. Let children receive events, but don't also let
         // TextFlow move its cursor (or collapse a double-click selection).
-        // A chat touch must not start a transient TextFlow selection (and
-        // repaint/steal focus) before PortalList recognizes the scroll. Inline
-        // links still receive the event; only native text selection is gated.
+        // Delay native touch selection until the long-press/handle controller
+        // claims it. Ordinary chat drags stay available to PortalList.
         let suppress_flow_selection = self.selectable
-            && ((!self.touch_selectable && matches!(event, Event::TouchUpdate(_)))
+            && (matches!(event, Event::TouchUpdate(update)
+                    if !self.touch_selectable || update.touches.iter().any(|t| t.state == TouchState::Move))
                 || (self.mouse_selection.is_some() && matches!(event, Event::MouseMove(_))));
         if suppress_flow_selection {
             self.with_flow(cx, |flow, _| flow.selectable = false);
         }
-        if matches!(event, Event::MouseUp(_))
-            && self.mouse_selection.as_ref().is_some_and(|s| s.dragging || s.whole_message)
+        if (matches!(event, Event::MouseUp(_))
+            && self.mouse_selection.as_ref().is_some_and(|s| s.dragging || s.preserve_click_selection))
+            || (self.touch_selected && matches!(event, Event::TouchUpdate(_)))
         {
             let mut actions = cx.capture_actions(|cx| self.view.handle_event(cx, event, scope));
             // A short drag can still satisfy HtmlLink::was_tap(). Selection owns
@@ -882,21 +938,29 @@ impl Widget for HtmlOrPlaintext {
             Event::MouseDown(e) if e.button.is_primary() && claim_before.is_empty()
                 && self.area().clipped_rect(cx).contains(e.abs) => {
                 // Reuse the captured child's native tap count, including links.
-                let whole_message = matches!(event.hits(cx, event.pointer_claimed_area()),
-                    Hit::FingerDown(fe) if fe.tap_count >= 2);
+                let taps = match event.hits(cx, event.pointer_claimed_area()) {
+                    Hit::FingerDown(fe) => fe.tap_count,
+                    _ => 1,
+                };
+                let preserve_click_selection = taps >= 2;
                 self.mouse_selection = self.with_flow(cx, |flow, cx| {
                     let index = flow.selection_point_to_char_index(cx, e.abs)?;
                     cx.set_key_focus(flow.area());
-                    if whole_message {
+                    if taps >= 3 {
                         flow.clear_selection();
                         flow.select_all();
+                    } else if taps == 2 {
+                        let (start, end) = selection_word(flow.selection_text(), index);
+                        flow.set_selection(start, end);
+                    } else if e.modifiers.shift {
+                        flow.set_selection(previous_anchor.unwrap_or(index), index);
                     } else {
                         flow.set_selection(index, index);
                     }
                     flow.redraw(cx);
                     Some(MessageSelection {
-                        origin: e.abs, anchor: index, cursor: index,
-                        dragging: false, whole_message,
+                        origin: e.abs, anchor: previous_anchor.unwrap_or(index), cursor: index,
+                        dragging: false, preserve_click_selection,
                     })
                 }).flatten();
             }
@@ -912,6 +976,28 @@ impl Widget for HtmlOrPlaintext {
             Event::KeyFocusLost(e) => {
                 if self.with_flow(cx, |flow, _| flow.area() == e.prev).unwrap_or(false) {
                     self.mouse_selection = None;
+                    self.handles_visible = false;
+                    self.handle_drag = None;
+                    self.redraw(cx);
+                }
+            }
+            Event::TouchUpdate(update) => {
+                for touch in &update.touches {
+                    match touch.state {
+                        TouchState::Start if claim_before.is_empty() && self.area().clipped_rect(cx).contains(touch.abs) => {
+                            self.touch_start = Some((touch.uid, touch.abs));
+                            self.touch_selected = false;
+                        }
+                        TouchState::Move if self.touch_start.is_some_and(|(uid, start)| uid == touch.uid && (start - touch.abs).length() >= 8.0) => {
+                            self.touch_start = None;
+                        }
+                        TouchState::Stop if self.touch_start.is_some_and(|(uid, _)| uid == touch.uid) => {
+                            if self.touch_selected { self.show_selection_actions(cx); }
+                            self.touch_start = None;
+                            self.touch_selected = false;
+                        }
+                        _ => {}
+                    }
                 }
             }
             _ => {}
@@ -942,24 +1028,166 @@ impl Widget for HtmlOrPlaintext {
                 text.flow.draw_text.font_scale = label.draw_text.font_scale;
             }
         }
-        self.view.draw_walk(cx, scope, walk)
+        let result = self.view.draw_walk(cx, scope, walk);
+        if result.is_done() { self.draw_selection_controls(cx); }
+        result
     }
 }
 
 impl HtmlOrPlaintext {
+    fn handle_selection_keys(&mut self, cx: &mut Cx, event: &Event) -> bool {
+        let Event::KeyDown(key) = event else { return false; };
+        self.with_flow(cx, |flow, cx| {
+            if !cx.has_key_focus(flow.area()) { return false; }
+            let (anchor, cursor) = flow.selection();
+            let text = flow.selection_text();
+            let next = match key.key_code {
+                KeyCode::ArrowLeft if !key.modifiers.shift && anchor != cursor => anchor.min(cursor),
+                KeyCode::ArrowRight if !key.modifiers.shift && anchor != cursor => anchor.max(cursor),
+                KeyCode::ArrowLeft => text.grapheme_indices(true).map(|(i, _)| i).take_while(|i| *i < cursor).last().unwrap_or(0),
+                KeyCode::ArrowRight => text.grapheme_indices(true).map(|(i, _)| i).find(|i| *i > cursor).unwrap_or(text.len()),
+                KeyCode::Home => 0,
+                KeyCode::End => text.len(),
+                KeyCode::Escape => {
+                    flow.clear_selection();
+                    cx.revert_key_focus();
+                    cx.hide_clipboard_actions();
+                    flow.redraw(cx);
+                    return true;
+                }
+                _ => return false,
+            };
+            flow.set_selection(if key.modifiers.shift { anchor } else { next }, next);
+            flow.redraw(cx);
+            true
+        }).unwrap_or(false)
+    }
+
+    /// Visible endpoint bounds, also useful for native accessibility/testing.
+    pub fn selection_handle_rects(&self, cx: &Cx) -> Option<(Rect, Rect)> {
+        self.handles_visible.then(|| (self.draw_start_handle.area().rect(cx), self.draw_end_handle.area().rect(cx)))
+    }
+
+    fn draw_selection_controls(&mut self, cx: &mut Cx2d) {
+        self.handles_visible = false;
+        if !self.selectable { return; }
+        let geometry = self.with_flow(cx, |flow, cx| {
+            if !cx.has_key_focus(flow.area()) { return None; }
+            let (anchor, cursor) = flow.selection();
+            Some((anchor == cursor,
+                flow.selection_cursor_rect(anchor.min(cursor), true)?,
+                flow.selection_cursor_rect(anchor.max(cursor), false)?))
+        }).flatten();
+        let Some((collapsed, start, end)) = geometry else { return };
+        if collapsed {
+            self.draw_caret.draw_abs(cx, start);
+        } else {
+            self.draw_start_handle.draw_abs(cx, Rect {
+                pos: start.pos - dvec2(16.0, 14.0), size: dvec2(32.0, start.size.y + 14.0),
+            });
+            self.draw_end_handle.draw_abs(cx, Rect {
+                pos: end.pos - dvec2(16.0, 0.0), size: dvec2(32.0, end.size.y + 14.0),
+            });
+            self.handles_visible = true;
+        }
+    }
+
+    fn handle_selection_handles(&mut self, cx: &mut Cx, event: &Event) -> bool {
+        if !self.handles_visible && self.handle_drag.is_none() { return false; }
+        for (start, area) in [(true, self.draw_start_handle.area()), (false, self.draw_end_handle.area())] {
+            // The stem shares the text's row, but pressing the text itself must
+            // still place a caret. Only the round endpoint starts a handle drag.
+            let rect = area.rect(cx);
+            let knob = rect.pos + dvec2(16.0, if start { 8.0 } else { rect.size.y - 8.0 });
+            let press = match event {
+                Event::MouseDown(e) => Some((e.abs, 8.0)),
+                Event::TouchUpdate(e) => e.touches.iter().find(|t| t.state == TouchState::Start).map(|t| (t.abs, 22.0)),
+                _ => None,
+            };
+            if press.is_some_and(|(point, radius)| (point - knob).length() > radius) { continue; }
+            match event.hits(cx, area) {
+                Hit::FingerDown(e) if e.is_primary_hit() => {
+                    let rect = area.rect(cx);
+                    let (anchor, cursor) = self.with_flow(cx, |flow, cx| {
+                        cx.set_key_focus(flow.area());
+                        flow.selection()
+                    }).unwrap_or_default();
+                    self.handle_drag = Some(SelectionHandleDrag {
+                        anchor: if start { anchor.max(cursor) } else { anchor.min(cursor) },
+                        pointer_origin: e.abs,
+                        text_origin: rect.pos + dvec2(16.0, if start { 14.0 + (rect.size.y - 14.0) / 2.0 } else { (rect.size.y - 14.0) / 2.0 }),
+                    });
+                    self.mouse_selection = None;
+                    cx.hide_clipboard_actions();
+                    return true;
+                }
+                Hit::FingerMove(e) => {
+                    cx.promote_finger_capture_over(area);
+                    if let Some(drag) = &self.handle_drag {
+                        let point = drag.text_origin + e.abs - drag.pointer_origin;
+                        self.with_flow(cx, |flow, cx| {
+                            if let Some(cursor) = flow.selection_point_to_char_index(cx, point) {
+                                flow.set_selection(drag.anchor, cursor);
+                                flow.redraw(cx);
+                            }
+                        });
+                        self.redraw(cx);
+                    }
+                    return true;
+                }
+                Hit::FingerUp(e) => {
+                    self.handle_drag = None;
+                    if e.device.is_touch() { self.show_selection_actions(cx); }
+                    return true;
+                }
+                Hit::FingerHoverIn(_) | Hit::FingerHoverOver(_) => { cx.set_cursor(MouseCursor::Text); }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    fn show_selection_actions(&self, cx: &mut Cx) {
+        if !self.selected_text(cx).is_empty() {
+            cx.show_clipboard_actions(true, self.area().clipped_rect(cx), cx.keyboard_shift);
+        }
+    }
+
+    /// Long-press text begins a range selection instead of opening a whole-message menu.
+    pub fn select_word_at(&mut self, cx: &mut Cx, position: DVec2) -> bool {
+        if !self.selectable || !self.area().clipped_rect(cx).contains(position) { return false; }
+        let touch_area = self.touch_start.and_then(|(uid, _)| cx.fingers.touch_capture_area(uid));
+        let selected = self.with_flow(cx, |flow, cx| {
+            let Some(index) = flow.selection_point_to_char_index(cx, position) else { return false; };
+            let (start, end) = selection_word(flow.selection_text(), index);
+            if start == end { return false; }
+            cx.set_key_focus(flow.area());
+            if let Some(area) = touch_area {
+                if area != flow.area() { cx.switch_finger_capture(area, flow.area(), Area::Empty); }
+            }
+            cx.promote_finger_capture_over(flow.area());
+            flow.set_selection(start, end);
+            flow.redraw(cx);
+            true
+        }).unwrap_or(false);
+        self.touch_selected = selected;
+        self.redraw(cx);
+        selected
+    }
+
     fn update_mouse_selection(&mut self, cx: &mut Cx, position: DVec2) {
         let Some(mut selection) = self.mouse_selection.take() else { return };
         let moved = (position - selection.origin).length() >= 4.0;
-        // Preserve a whole-message selection through normal double-click jitter.
+        // Preserve a word/whole-message selection through normal click jitter.
         // A deliberate drag starts a new range at the clicked character.
-        if selection.dragging || moved || !selection.whole_message {
+        if selection.dragging || moved || !selection.preserve_click_selection {
             self.with_flow(cx, |flow, cx| {
                 if let Some(cursor) = flow.selection_point_to_char_index(cx, position) {
                     selection.dragging |= moved || cursor != selection.anchor;
-                    if cursor != selection.cursor || (selection.whole_message && moved) {
+                    if cursor != selection.cursor || (selection.preserve_click_selection && moved) {
                         flow.set_selection(selection.anchor, cursor);
                         selection.cursor = cursor;
-                        selection.whole_message = false;
+                        selection.preserve_click_selection = false;
                         flow.redraw(cx);
                     }
                 }
@@ -1015,6 +1243,10 @@ impl HtmlOrPlaintext {
 
     pub fn clear_selection(&mut self, cx: &mut Cx) {
         self.mouse_selection = None;
+        self.handle_drag = None;
+        self.handles_visible = false;
+        self.touch_start = None;
+        self.touch_selected = false;
         self.with_flow(cx, |flow, cx| { flow.clear_selection(); flow.redraw(cx); });
     }
 }
@@ -1040,6 +1272,9 @@ impl HtmlOrPlaintext {
 }
 
 impl HtmlOrPlaintextRef {
+    pub fn select_word_at(&self, cx: &mut Cx, position: DVec2) -> bool {
+        self.borrow_mut().is_some_and(|mut inner| inner.select_word_at(cx, position))
+    }
     pub fn selected_text(&self, cx: &mut Cx) -> String {
         self.borrow().map(|inner| inner.selected_text(cx)).unwrap_or_default()
     }
