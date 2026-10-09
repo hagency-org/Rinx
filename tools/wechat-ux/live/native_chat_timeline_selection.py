@@ -14,6 +14,7 @@ from native_probe import NativeApp
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", type=Path, default=Path("target/debug/examples/chat_timeline_selection"))
+    parser.add_argument("--touch-input", action="store_true", help="Exercise widget touch events on the native host; not a physical-device test")
     args = parser.parse_args()
     root = Path("target/chat-timeline-selection-regressions") / uuid.uuid4().hex
     root.mkdir(parents=True)
@@ -23,7 +24,7 @@ def main():
     app = NativeApp(root, port, auto_login=False)
     app.output.mkdir(parents=True)
     app.log = (app.output / "native.log").open("w")
-    app.process = subprocess.Popen([str(args.binary.resolve())],
+    app.process = subprocess.Popen([str(args.binary.resolve()), *(["--touch-input"] if args.touch_input else [])],
         env=dict(os.environ, MAKEPAD_REMOTE=str(port), MAKEPAD_HIDE_WINDOWS="1", MAKEPAD_NO_FOCUS="1",
                  RINX_DATA_DIR=str((root / "profile").resolve()), RAYON_NUM_THREADS="1"),
         stdin=subprocess.DEVNULL, stdout=app.log, stderr=subprocess.STDOUT)
@@ -65,6 +66,43 @@ def main():
                 app.request("/m", k="move", x=x, y=y, wait=1)
             app.request("/m", k="up", x=points[-1][0], y=points[-1][1], wait=1)
 
+        if args.touch_input:
+            before = state()
+            x, y, w, h = body(6)
+            app.request("/m", k="down", x=x + 15, y=y + 8, wait=1)
+            app.request("/k", c="F8", wait=1)
+            app.request("/m", k="up", x=x + 15, y=y + 8, wait=1)
+            selected = state()
+            assert selection(selected, 6) == "Alpha" and position(selected) == position(before), selected
+            handles = next(row["handles"] for row in selected["selections"] if row["index"] == 6)
+            assert handles
+            app.capture("touch-long-press-word")
+            report["checks"].append("touch_long_press_selects_word_and_shows_handles")
+            end = handles[1]
+            knob = (end[0] + 16, end[1] + end[3] - 8)
+            drag([knob, (knob[0] + 80, knob[1] + 10), (knob[0] + 150, knob[1] + 30)])
+            after = state()
+            assert position(after) == position(before), (before, after)
+            assert "中文" in selection(after, 6) and "\n" in selection(after, 6), after
+            report["checks"].append("touch_handle_drag_extends_across_lines_without_scrolling")
+            app.capture("touch-range-handles")
+
+            x, y, w, h = body(5)
+            app.request("/m", k="down", x=x + 10, y=y + 12, wait=1)
+            app.request("/k", c="F8", wait=1)
+            app.request("/m", k="up", x=x + 10, y=y + 12, wait=1)
+            after = state()
+            assert selection(after, 5) == "Selectable" and after["link_clicks"] == 0, after
+            report["checks"].append("touch_long_press_on_link_selects_text_without_opening_url")
+
+            x, y, _, _ = body(6)
+            drag([(x + 200, y + 10), (x + 200, y - 30), (x + 200, y - 70)])
+            after = state()
+            assert position(after) != position(before), after
+            report["checks"].append("ordinary_touch_swipe_over_text_still_scrolls")
+            report["passed"] = True
+            return
+
         before = state()
         x, y, w, h = body(6)
         drag([(x, y + 8), (x + 50, y + 15), (x + 180, y + h - 3)])
@@ -94,8 +132,8 @@ def main():
         app.request("/click", x=x + 15, y=y + 8, wait=1)
         app.request("/click", x=x + 15, y=y + 8, wait=1)
         after = state()
-        assert position(after) == position(before) and selection(after, 6).endswith("Third line ends here."), after
-        report["checks"].append("double_click_still_selects_whole_message_inside_timeline")
+        assert position(after) == position(before) and selection(after, 6) == "Alpha", after
+        report["checks"].append("double_click_selects_word_inside_timeline")
 
         x, y, _, _ = body(5)
         app.click(x + 15, y + 12)
@@ -141,9 +179,7 @@ def main():
         report["checks"].append("cache_evicts_old_messages_and_recreated_message_has_no_stale_selection")
         report["passed"] = True
     finally:
-        app.process.terminate()
-        app.process.wait(timeout=10)
-        app.log.close()
+        app.stop()
         (root / "report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False))
         (root / "trace.json").write_text(json.dumps(app.trace, indent=2))
         print(json.dumps({"report": str(root / "report.json"), **report}, ensure_ascii=False))

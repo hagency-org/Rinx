@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise offline Rinx chat widgets using native pointer/keyboard events."""
 import argparse
+from collections import Counter
 import json
 import os
 from pathlib import Path
@@ -75,12 +76,18 @@ def main():
             after = list(selected.crop(crop).getdata())
             rgb = lambda value: tuple((value >> shift) & 255 for shift in (16, 8, 0))
             close = lambda a, b: max(abs(x - y) for x, y in zip(a, b)) <= 8
-            ink, highlight = rgb(s["ink"]), rgb(s["selection_color"])
+            ink = rgb(s["ink"])
             glyphs = [i for i, pixel in enumerate(before) if close(pixel, ink)]
             assert len(glyphs) >= 20, ("No baseline glyph pixels", rect, ink)
             retained = sum(close(after[i], ink) for i in glyphs) / len(glyphs)
             assert retained >= .95, ("Selection obscures glyphs", retained, path)
-            assert sum(close(pixel, highlight) for pixel in after) > 20, ("Missing selection highlight", path)
+            # Chat highlights blend the accent over the current surface; the
+            # opaque selected-row palette token is not their resulting color.
+            background = Counter(before).most_common(1)[0][0]
+            changed_background = sum(close(before[i], background) and
+                                     max(abs(a-b) for a,b in zip(after[i], before[i])) >= 12
+                                     for i in range(len(before)))
+            assert changed_background > 20, ("Missing selection highlight", path)
             report.setdefault("selected_glyphs", []).append({"capture": str(path), "retained": retained})
 
         def state():
@@ -195,16 +202,44 @@ def main():
 
         double_click_with_jitter(px + 20, line)
         s = state()
-        assert s["plain"] == s["copy"] == PLAIN, s
-        app.capture("double-click-whole-message")
+        assert s["plain"] == s["copy"] == "Alpha", s
+        assert s["handles"] is not None, s
+        app.capture("double-click-word-handles")
         app.request("/m", k="move", x=px + 150, y=line, wait=1)
+        assert state()["copy"] == "Alpha"
+        report["checks"].append("double_click_selects_word_with_handles_and_survives_jitter_and_hover")
+
+        # Adjust the already-selected word using each visible endpoint.
+        start, end = s["handles"]
+        knob = (end[0] + 16, end[1] + end[3] - 8)
+        drag([knob, (knob[0] + 80, knob[1])])
+        extended = state()
+        assert extended["copy"].startswith("Alpha 中文") and len(extended["copy"]) < len(PLAIN), extended
+        start = extended["handles"][0]
+        knob = (start[0] + 16, start[1] + 8)
+        drag([knob, (knob[0] + 38, knob[1])])
+        shortened = state()
+        assert shortened["copy"] == extended["copy"][5:], (extended, shortened)
+        app.capture("both-endpoints-adjusted")
+        report["checks"].append("both_handles_adjust_existing_range_and_clipboard_contains_only_range")
+
+        time.sleep(.55)
+        app.click(px + 100, line)
+        assert not state()["plain"]
+        app.capture("single-click-caret")
+        app.request("/k", c="Home", wait=1)
+        for _ in range(5): app.request("/k", c="ArrowRight", shift=1, wait=1)
+        assert state()["copy"] == "Alpha"
+        report["checks"].append("single_click_collapses_to_caret_shift_arrows_select_graphemes")
+
+        app.request("/k", c="A", cmd=1, wait=1)
         assert state()["copy"] == PLAIN
-        report["checks"].append("double_click_selects_entire_message_and_survives_jitter_and_hover")
+        report["checks"].append("select_all_remains_available")
 
         double_click_with_jitter(rx + 15, ry + 14)
         s = state()
-        assert not s["plain"] and "Rich bold 中文" in s["copy"] and "after the link." in s["copy"], s
-        report["checks"].append("double_click_selects_entire_rich_message")
+        assert not s["plain"] and s["copy"] == "Rich", s
+        report["checks"].append("double_click_selects_rich_text_word")
 
         # A subsequent single press must immediately replace the whole selection;
         # every character boundary updates it, even with sub-threshold movement.

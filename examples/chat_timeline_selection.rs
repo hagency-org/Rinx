@@ -1,6 +1,8 @@
 //! Offline selection fixture using the production chat timeline and message bodies.
 use makepad_widgets::*;
 use rinx::shared::html_or_plaintext::HtmlOrPlaintextWidgetRefExt;
+#[path = "support/touch_input.rs"] mod touch_input;
+use touch_input::TouchInput;
 
 app_main!(App);
 
@@ -40,6 +42,7 @@ script_mod! {
 struct App {
     #[live] ui: WidgetRef,
     #[rust] link_clicks: usize,
+    #[rust] touch_input: TouchInput,
 }
 
 impl MatchEvent for App {
@@ -86,7 +89,9 @@ impl MatchEvent for App {
             for index in 4..10 {
                 if let Some((_, row)) = list.get_item(index) {
                     let body = row.html_or_plaintext(cx, ids!(body));
-                    selections.push(serde_json::json!({"index": index, "text": body.selected_text(cx)}));
+                    let handles = body.borrow().and_then(|body| body.selection_handle_rects(cx))
+                        .map(|(a,b)| [[a.pos.x,a.pos.y,a.size.x,a.size.y],[b.pos.x,b.pos.y,b.size.x,b.size.y]]);
+                    selections.push(serde_json::json!({"index": index, "text": body.selected_text(cx), "handles":handles}));
                 }
             }
             let state = serde_json::json!({
@@ -112,6 +117,8 @@ impl AppMain for App {
     }
 
     fn handle_event(&mut self, cx: &mut Cx, event: &Event) {
+        let area = self.ui.widget(cx, ids!(timeline)).area();
+        if self.touch_input.dispatch(cx, event, &self.ui, area) { return; }
         self.match_event(cx, event);
         if !matches!(event, Event::Draw(_)) {
             self.ui.handle_event(cx, event, &mut Scope::empty());

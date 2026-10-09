@@ -7167,6 +7167,11 @@ impl Widget for Message {
             if msg_rect.contains(lpe.abs)
                 && !self.is_within_excluded_child(cx, lpe.abs, true)
             {
+                let body = self.view.html_or_plaintext(cx, ids!(content.message));
+                let caption = self.view.html_or_plaintext(cx, ids!(content.message.caption_view.caption));
+                if body.select_word_at(cx, lpe.abs) || caption.select_word_at(cx, lpe.abs) {
+                    return;
+                }
                 let details = d.clone();
                 self.animator_play(cx, ids!(bg_hover.on));
                 self.open_context_menu(cx, room_screen_widget_uid, details, lpe.abs);
