@@ -265,6 +265,55 @@ pub(super) async fn pin(
     Ok(String::from("{}"))
 }
 
+/// The wire content of an `m.replace` edit: fallback body `* <body>`,
+/// `m.new_content` carrying the new text, related to `event_id`. Extracted
+/// so the shape the timeline renderer recognizes stays pinned by a test.
+fn edit_content(
+    event_id: OwnedEventId,
+    body: String,
+    mentions: Option<matrix_sdk::ruma::events::Mentions>,
+) -> matrix_sdk::ruma::events::room::message::RoomMessageEventContent {
+    use matrix_sdk::ruma::events::room::message::{
+        ReplacementMetadata, RoomMessageEventContentWithoutRelation,
+    };
+    RoomMessageEventContentWithoutRelation::text_plain(body)
+        .make_replacement(ReplacementMetadata::new(event_id, mentions))
+}
+
+pub(super) async fn edit(
+    room_id: OwnedRoomId,
+    event_id: OwnedEventId,
+    body: String,
+) -> Result<String, String> {
+    use matrix_sdk::ruma::events::{AnySyncMessageLikeEvent, AnySyncTimelineEvent, SyncMessageLikeEvent};
+    super::policy::ensure_room_access(room_id.as_str(), super::policy::RoomAccess::Write)?;
+    let client = get_client().ok_or("not logged in")?;
+    let room = client.get_room(&room_id).ok_or("room not found")?;
+    // The spec only honors m.replace from the original sender; everyone else
+    // silently drops a forged edit, so check up front and answer honestly
+    // instead of reporting success on a no-op.
+    let (event, _) = super::room::protected_event_with_relations(&room, &event_id, None).await?;
+    let Ok(AnySyncTimelineEvent::MessageLike(AnySyncMessageLikeEvent::RoomMessage(
+        SyncMessageLikeEvent::Original(original),
+    ))) = event.raw().deserialize()
+    else {
+        return Err("that event isn't an editable message".into());
+    };
+    if original.sender != *room.own_user_id() {
+        return Err("only your own messages can be edited".into());
+    }
+    // Hand the original mentions over so the replacement doesn't re-ping them.
+    let content = edit_content(event_id, body, original.content.mentions.clone());
+    super::policy::commit_sensitive_target(
+        room_id.as_str(),
+        &serde_json::to_value(&content).map_err(|_| "Cannot review edit content.")?,
+    )?;
+    super::policy::audit_room_operation(room_id.as_str(), room.send(content))
+        .await
+        .map_err(|e| format!("couldn't send the edit: {e}"))?;
+    Ok(String::from("{}"))
+}
+
 pub(super) async fn room_flag(
     room_id: OwnedRoomId,
     flag: RoomFlag,
@@ -314,4 +363,43 @@ pub(super) async fn room_flag(
         });
     }
     Ok(String::from("{}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The edit wire shape the room timeline renders as an edit: a
+    /// `m.replace` relation to the original with the new text under
+    /// `m.new_content`, and a `* `-prefixed fallback body for clients that
+    /// don't follow relations.
+    #[test]
+    fn edit_content_is_an_m_replace_the_timeline_renders() {
+        let content = edit_content(
+            OwnedEventId::try_from("$original").unwrap(),
+            "Corrected 中文".to_string(),
+            None,
+        );
+        let wire = serde_json::to_value(&content).unwrap();
+        assert_eq!(wire["m.relates_to"]["rel_type"], "m.replace");
+        assert_eq!(wire["m.relates_to"]["event_id"], "$original");
+        assert_eq!(wire["m.new_content"]["body"], "Corrected 中文");
+        assert_eq!(wire["m.new_content"]["msgtype"], "m.text");
+        assert_eq!(wire["body"], "* Corrected 中文");
+        assert_eq!(wire["msgtype"], "m.text");
+    }
+
+    /// An edit must not re-ping the users the original message mentioned.
+    #[test]
+    fn edit_content_does_not_reping_original_mentions() {
+        let mentions = matrix_sdk::ruma::events::Mentions::with_user_ids([matrix_sdk::ruma::OwnedUserId::try_from("@a:b").unwrap()]);
+        let content = edit_content(
+            OwnedEventId::try_from("$original").unwrap(),
+            "fixed".to_string(),
+            Some(mentions),
+        );
+        let wire = serde_json::to_value(&content).unwrap();
+        assert!(wire.get("m.mentions").is_none(), "edit re-pings: {wire}");
+        assert!(wire["m.new_content"].get("m.mentions").is_none());
+    }
 }

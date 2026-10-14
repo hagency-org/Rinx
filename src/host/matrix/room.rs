@@ -102,7 +102,7 @@ fn add_row_context(
 
 /// Read cached relations without sending an app-selected event id. A cache
 /// miss may fetch only after every source permits the homeserver origin.
-async fn protected_event_with_relations(
+pub(super) async fn protected_event_with_relations(
     room: &matrix_sdk::Room,
     event_id: &matrix_sdk::ruma::EventId,
     filter: Option<Vec<matrix_sdk::ruma::events::relation::RelationType>>,

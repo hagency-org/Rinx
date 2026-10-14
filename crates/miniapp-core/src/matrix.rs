@@ -92,6 +92,10 @@ pub enum MatrixServiceCall {
     ReadReceipt { event_id: Option<String> },
     /// Pin or unpin an event.
     Pin { event_id: String, pinned: bool },
+    /// Replace the text of one of the user's own messages (`m.replace`);
+    /// answers `{}`. The homeserver ignores edits of other senders'
+    /// messages, so a mistaken target errors rather than corrupts.
+    EditMessage { event_id: String, body: String },
     /// Turn one of the attached room's own flags on or off.
     RoomFlag { flag: RoomFlag, on: bool },
     /// Plain text to any joined room, `room_id` as given.
@@ -329,6 +333,10 @@ pub fn parse(service: &str, args: &serde_json::Value, has_room: bool) -> Result<
             event_id: required_str(service, args, "event_id")?,
             pinned: required_bool(service, args, "pinned")?,
         },
+        "matrix.edit_message" => MatrixServiceCall::EditMessage {
+            event_id: required_str(service, args, "event_id")?,
+            body: text_body(service, args)?,
+        },
         "matrix.favorite" | "matrix.low_priority" | "matrix.mark_unread" => MatrixServiceCall::RoomFlag {
             flag: match service {
                 "matrix.favorite" => RoomFlag::Favorite,
@@ -385,7 +393,7 @@ pub fn cost(service: &str) -> f64 {
         "matrix.typing" => 1.0,
         "matrix.favorite" | "matrix.low_priority" | "matrix.mark_unread" => 5.0,
         "matrix.reply" | "matrix.thread_reply" | "matrix.react" | "matrix.read_receipt"
-        | "matrix.pin" | "matrix.rooms_send" => 8.0,
+        | "matrix.pin" | "matrix.rooms_send" | "matrix.edit_message" => 8.0,
 
         // --- spaces ---
         "matrix.spaces" => 5.0,
@@ -648,6 +656,23 @@ mod send_tests {
             MatrixServiceCall::React { .. }
         ));
         assert!(parse_err("matrix.react", json!({"event_id": "$e", "key": "é".repeat(33)})).contains("32 characters"));
+    }
+
+    #[test]
+    fn edit_message_needs_an_event_and_a_body() {
+        let MatrixServiceCall::EditMessage { event_id, body } =
+            parse_ok("matrix.edit_message", json!({"event_id": "$e", "body": "  corrected  "})) else { panic!() };
+        assert_eq!(event_id, "$e");
+        assert_eq!(body, "corrected", "the body is trimmed");
+        assert_eq!(parse_err("matrix.edit_message", json!({"body": "hi"})), "matrix.edit_message needs {event_id}");
+        assert_eq!(parse_err("matrix.edit_message", json!({"event_id": "  ", "body": "hi"})), "matrix.edit_message needs {event_id}");
+        assert_eq!(parse_err("matrix.edit_message", json!({"event_id": "$e"})), "matrix.edit_message needs {body}");
+        assert!(parse_err("matrix.edit_message", json!({"event_id": "$e", "body": "x".repeat(4097)})).contains("too long"));
+        // Editing is a write into the attached room, so a roomless app is refused.
+        assert_eq!(
+            parse("matrix.edit_message", &json!({"event_id": "$e", "body": "hi"}), false).err().as_deref(),
+            Some("this mini-app is not attached to a room"),
+        );
     }
 
     #[test]
