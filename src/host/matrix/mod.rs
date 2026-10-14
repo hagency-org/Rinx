@@ -188,6 +188,12 @@ pub enum A2AppMatrixRequest {
         pinned: bool,
         reply: Reply,
     },
+    EditMessage {
+        room_id: OwnedRoomId,
+        event_id: OwnedEventId,
+        body: String,
+        reply: Reply,
+    },
     RoomFlag {
         room_id: OwnedRoomId,
         flag: RoomFlag,
@@ -489,6 +495,14 @@ pub fn request_for(
             pinned,
             reply,
         },
+        (MatrixServiceCall::EditMessage { event_id, body }, Some(room_id)) => {
+            A2AppMatrixRequest::EditMessage {
+                room_id,
+                event_id: OwnedEventId::try_from(event_id).map_err(|_| "invalid event_id")?,
+                body,
+                reply,
+            }
+        }
         (MatrixServiceCall::RoomFlag { flag, on }, Some(room_id)) => A2AppMatrixRequest::RoomFlag {
             room_id,
             flag,
@@ -1036,6 +1050,12 @@ pub async fn execute(
                 pinned,
                 reply,
             } => (reply, send::pin(room_id, event_id, pinned).await),
+            A2AppMatrixRequest::EditMessage {
+                room_id,
+                event_id,
+                body,
+                reply,
+            } => (reply, send::edit(room_id, event_id, body).await),
             A2AppMatrixRequest::RoomFlag {
                 room_id,
                 flag,
