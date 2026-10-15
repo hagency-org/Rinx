@@ -5056,14 +5056,22 @@ fn populate_message_view(
                     new_drawn_status.content_drawn = true;
                     (item, false)
                 }
-                message if matches!(message.msgtype(), crate::mini_app::MSGTYPE | crate::article_app::MSGTYPE) => {
+                message if matches!(message.msgtype(), crate::mini_app::MSGTYPE | crate::article_app::MSGTYPE | rinx_miniapp_core::native_activity::MSGTYPE) => {
                     has_html_body = false;
                     let template = if mobile {
                         if event_tl_item.is_own() { id!(MobileOwnMiniAppMessage) } else { id!(MobileMiniAppMessage) }
                     } else { id!(MiniAppMessage) };
                     let (item, _) = list.item_with_existed(cx, item_id, template);
                     item.link_preview(cx, ids!(content.link_preview_view)).clear(cx);
-                    match SharedMiniApp::from_message(message) {
+                    let parsed = if message.msgtype() == rinx_miniapp_core::native_activity::MSGTYPE {
+                        event_tl_item.event_id().ok_or_else(|| "Activity source has no server event".to_string()).and_then(|event| {
+                            SharedMiniApp::native_activity(message, crate::mini_app::MessageSource {
+                                room: timeline_kind.room_id().to_string(),
+                                event: event.to_string(), sender: event_tl_item.sender().to_string(),
+                            })
+                        })
+                    } else { SharedMiniApp::from_message(message) };
+                    match parsed {
                         Ok(app) => { web_mini_app = Some(app); }
                         Err(_) => {
                             let content = item.html_or_plaintext(cx, ids!(content.message));

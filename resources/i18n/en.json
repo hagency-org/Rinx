@@ -1585,5 +1585,6 @@
   "Code incorrect or expired. Check the latest email or request a new code.": "Code incorrect or expired. Check the latest email or request a new code.",
   "Could not send the verification email. Please wait a minute and retry.": "Could not send the verification email. Please wait a minute and retry.",
   "Please wait before requesting another email code.": "Please wait before requesting another email code.",
-  "The server could not verify your email. Try again.": "The server could not verify your email. Try again."
+  "The server could not verify your email. Try again.": "The server could not verify your email. Try again.",
+  "This activity needs a host with the named native app installed.": "This activity needs a host with the named native app installed."
 }

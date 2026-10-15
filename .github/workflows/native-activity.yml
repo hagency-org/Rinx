@@ -1,0 +1,44 @@
+name: Native activity cards
+on:
+  push:
+    branches: [native-activity-card-contract]
+  pull_request:
+    paths:
+      - 'crates/miniapp-core/**'
+      - 'src/mini_app.rs'
+      - 'src/home/room_screen.rs'
+      - '.github/workflows/native-activity.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  pointer-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.98.0 --profile minimal
+      - name: Test actual portable mini-app contract
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.0
+        run: cargo test --manifest-path crates/miniapp-core/Cargo.toml --locked
+  windows-client:
+    # Match the supported VS 2022 image used by builds.yml. The pinned
+    # cmake crate predates the VS 2026 generator on windows-2025.
+    runs-on: windows-2022
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.98.0 --profile minimal
+      - uses: Swatinem/rust-cache@v2
+      - name: Compile complete hosted Rinx library
+        env:
+          RUSTUP_TOOLCHAIN: 1.98.0
+        run: cargo check --locked --lib --features octosense-module

@@ -1,5 +1,6 @@
 //! Portable contracts shared by standalone and embedded mini-app hosts.
 pub mod matrix;
+pub mod native_activity;
 
 use serde_json::Value;
 use std::{

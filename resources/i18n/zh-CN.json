@@ -1585,5 +1585,6 @@
   "Code incorrect or expired. Check the latest email or request a new code.": "验证码错误或已过期。请查看最新邮件，或重新获取验证码。",
   "Could not send the verification email. Please wait a minute and retry.": "验证码邮件未能发送，请稍等一分钟后重试。",
   "Please wait before requesting another email code.": "发送过于频繁，请稍后重新获取验证码。",
-  "The server could not verify your email. Try again.": "服务器未能验证邮箱，请重试。"
+  "The server could not verify your email. Try again.": "服务器未能验证邮箱，请重试。",
+  "This activity needs a host with the named native app installed.": "此活动需要安装对应原生应用的宿主。"
 }

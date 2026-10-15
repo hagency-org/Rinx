@@ -18,6 +18,8 @@ use crate::{
     utils::RoomNameId,
 };
 
+pub use rinx_miniapp_core::native_activity::{ActivityCard, MessageSource};
+
 pub const MSGTYPE: &str = "rs.robius.robrix.mini_app";
 const BROWSER: LiveId = live_id!(robrix_web_mini_app);
 const CAPTION_PADDING: f64 = if cfg!(target_os = "macos") { 28.0 } else { 0.0 };
@@ -27,7 +29,7 @@ pub fn is_timeline_event(event: &ruma::events::AnySyncTimelineEvent) -> bool {
         return false;
     };
     event.original_content().is_some_and(|content| matches!(content,
-        ruma::events::AnyMessageLikeEventContent::RoomMessage(message) if matches!(message.msgtype.msgtype(), MSGTYPE | crate::article_app::MSGTYPE)))
+        ruma::events::AnyMessageLikeEventContent::RoomMessage(message) if matches!(message.msgtype.msgtype(), MSGTYPE | crate::article_app::MSGTYPE | rinx_miniapp_core::native_activity::MSGTYPE)))
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -106,6 +108,7 @@ impl WebMiniApp {
 #[derive(Clone, Debug)]
 pub enum SharedMiniApp {
     Web(WebMiniApp),
+    NativeActivity { card: ActivityCard, source: MessageSource },
     Article(crate::article_app::ArticlePackage),
     PublishedArticle {
         title: String,
@@ -134,8 +137,14 @@ impl SharedMiniApp {
             crate::article_app::ArticlePackage::from_message(message).map(Self::Article)
         } else { WebMiniApp::from_message(message).map(Self::Web) }
     }
-    pub fn title(&self) -> &str { match self {Self::PublishedArticle{title,..}=>title, Self::Web(app)=>&app.title, Self::Article(_)=>crate::i18n::tr("Article editor")} }
-    fn origin(&self) -> String {match self {Self::PublishedArticle{..}=>crate::i18n::tr("Read full article").into(),Self::Web(app)=>app.origin(),Self::Article(_)=>crate::i18n::tr("Markdown · Native preview").into()}}
+    pub fn native_activity(message: &MessageType, source: MessageSource) -> Result<Self, String> {
+        if message.msgtype() != rinx_miniapp_core::native_activity::MSGTYPE { return Err("Not a native activity card".into()); }
+        let card = ActivityCard::parse(message.data().get("activity").cloned().ok_or("Missing activity pointer")?)?;
+        ruma::RoomId::parse(&card.room).map_err(|_| "Invalid target room")?;
+        Ok(Self::NativeActivity { card, source })
+    }
+    pub fn title(&self) -> &str { match self { Self::NativeActivity{card,..}=>&card.title,Self::PublishedArticle{title,..}=>title, Self::Web(app)=>&app.title, Self::Article(_)=>crate::i18n::tr("Article editor")} }
+    fn origin(&self) -> String {match self {Self::NativeActivity{card,..}=>format!("{} · {}",card.app,card.location),Self::PublishedArticle{..}=>crate::i18n::tr("Read full article").into(),Self::Web(app)=>app.origin(),Self::Article(_)=>crate::i18n::tr("Markdown · Native preview").into()}}
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +154,9 @@ pub enum MiniAppAction {
         app: WebMiniApp,
         timeline: TimelineKind,
     },
+    /// Pointer only: a host must validate the SDK account, signed source event,
+    /// target membership and application resource again before opening.
+    OpenNative { card: ActivityCard, source: MessageSource, account: OwnedUserId },
     Close,
 }
 
@@ -294,10 +306,15 @@ impl MiniAppCard {
         self.widget(cx, ids!(blog_icon)).set_visible(cx, article);
         self.label(cx, ids!(kind_label)).set_text(cx, crate::i18n::tr(kind));
         let summary = match &self.app {
-            Some(SharedMiniApp::PublishedArticle { summary, .. }) => summary.trim(),
-            _ => "",
+            Some(SharedMiniApp::PublishedArticle { summary, .. }) => summary.trim().to_owned(),
+            Some(SharedMiniApp::NativeActivity { card, .. }) => {
+                let time = |seconds: u64| chrono::DateTime::from_timestamp(seconds as i64, 0)
+                    .map(|t| t.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M").to_string()).unwrap_or_default();
+                format!("{} – {}\n{}", time(card.start), time(card.end), card.location)
+            }
+            _ => String::new(),
         };
-        self.label(cx, ids!(card_summary)).set_text(cx, summary);
+        self.label(cx, ids!(card_summary)).set_text(cx, &summary);
         self.label(cx, ids!(card_summary)).set_visible(cx, !summary.is_empty());
         self.image(cx, ids!(card_cover)).set_visible(cx, self.cover_key.is_some());
         if let Some(app) = &self.app {
@@ -331,6 +348,11 @@ impl Widget for MiniAppCard {
             {
                 if let (Some(app), Some(timeline)) = (&self.app, &self.timeline) {
                     match app {
+                        SharedMiniApp::NativeActivity { card, source } => {
+                            if let Some(account) = current_user_id() {
+                                cx.action(MiniAppAction::OpenNative { card: card.clone(), source: source.clone(), account });
+                            }
+                        }
                         SharedMiniApp::Web(app) => cx.action(MiniAppAction::Open { app: app.clone(), timeline: timeline.clone() }),
                         SharedMiniApp::Article(_) => cx.action(crate::article_app::ArticleAction::Open),
                         SharedMiniApp::PublishedArticle{room,event,..} => cx.action(crate::article_app::ArticleAction::Read { room: room.clone(), event: event.clone() }),
@@ -704,6 +726,12 @@ impl Widget for MiniAppPanel {
 
 impl MiniAppPanelRef {
     pub fn action(&self, cx: &mut Cx, modal: ModalRef, action: &MiniAppAction) {
+        if matches!(action, MiniAppAction::OpenNative { .. }) {
+            // Embedded hosts intercept this typed action. A standalone client
+            // has no native application registry and cannot silently launch one.
+            enqueue_popup_notification(crate::i18n::tr("This activity needs a host with the named native app installed."), PopupKind::Info, None);
+            return;
+        }
         let Some(mut inner) = self.borrow_mut() else {
             return;
         };
@@ -735,7 +763,7 @@ impl MiniAppPanelRef {
                     .set_text(cx, &app.title);
                 inner.show_web(cx, app.clone());
             }
-            MiniAppAction::Close => unreachable!(),
+            MiniAppAction::Close | MiniAppAction::OpenNative { .. } => unreachable!(),
         }
         modal.open(cx);
     }
